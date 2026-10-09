@@ -330,6 +330,9 @@ class TimeSeriesChartCanvas(QWidget):
         p.drawLine(left, bottom, right, bottom)
         p.drawLine(left, top, left, bottom)
 
+        # Store per-metric scale for exact highlight dot positioning
+        metric_scales = {}
+
         # Draw Lines for active metrics
         for metric_key in active_keys:
             pts = self.history_data.get(metric_key, [])
@@ -357,6 +360,7 @@ class TimeSeriesChartCanvas(QWidget):
                 else:
                     m_min, m_max = cfg.get("nominal", (0.0, 100.0))
                 m_range = max(1e-6, m_max - m_min)
+                metric_scales[metric_key] = (m_min, m_range)
 
             curve_points = []
             for pt in pts:
@@ -399,38 +403,57 @@ class TimeSeriesChartCanvas(QWidget):
                 p.setBrush(QBrush(line_color))
                 p.drawEllipse(curve_points[0], 4, 4)
 
-        # Draw interactive hover crosshair and floating tooltip card
-        if self.hover_active and self.hover_pos and left <= self.hover_pos.x() <= right:
-            hx = self.hover_pos.x()
-            frac_x = max(0.0, min(1.0, (hx - left) / chart_width))
-            target_t = cutoff_ts + frac_x * self.window_seconds
+        # Floating tooltip card & inspection (Interactive Hover or Pinned Live)
+        has_any_pts = any(bool(self.history_data.get(k)) for k in active_keys)
+        if has_any_pts:
+            is_hover = bool(self.hover_active and self.hover_pos and left <= self.hover_pos.x() <= right)
 
-            try:
-                clock_str = datetime.fromtimestamp(target_t).strftime("%H:%M:%S")
-            except Exception:
-                clock_str = "--:--:--"
+            if is_hover:
+                hx = self.hover_pos.x()
+                frac_x = max(0.0, min(1.0, (hx - left) / chart_width))
+                target_t = cutoff_ts + frac_x * self.window_seconds
 
-            offset_sec = int(target_t - anchor_ts)
-            if abs(offset_sec) < 5:
-                rel_str = "Now"
+                try:
+                    clock_str = datetime.fromtimestamp(target_t).strftime("%H:%M:%S")
+                except Exception:
+                    clock_str = "--:--:--"
+
+                offset_sec = int(target_t - anchor_ts)
+                if abs(offset_sec) < 5:
+                    rel_str = "Now"
+                else:
+                    rel_str = f"{offset_sec // 60}m {abs(offset_sec) % 60:02d}s"
+
+                header_text = f"⏱ {clock_str}  ({rel_str})"
+                header_color = QColor("#38BDF8")
+
+                # 1. Vertical dashed crosshair line
+                crosshair_pen = QPen(QColor(100, 116, 139, 180), 1.2, Qt.DashLine)
+                p.setPen(crosshair_pen)
+                p.drawLine(hx, top, hx, bottom)
+
+                # 2. Timestamp badge at bottom axis
+                badge_w = 64
+                badge_h = 16
+                badge_x = max(left, min(right - badge_w, hx - badge_w // 2))
+                p.setPen(Qt.NoPen)
+                p.setBrush(QBrush(QColor("#0F172A")))
+                p.drawRoundedRect(badge_x, bottom + 2, badge_w, badge_h, 3, 3)
+                p.setPen(QColor("#38BDF8"))
+                p.setFont(QFont("Segoe UI", 7, QFont.Bold))
+                p.drawText(QRect(badge_x, bottom + 2, badge_w, badge_h), Qt.AlignCenter, clock_str)
+
             else:
-                rel_str = f"{offset_sec // 60}m {abs(offset_sec) % 60:02d}s"
+                # Default LIVE pinned display (No hover needed!)
+                target_t = anchor_ts
+                try:
+                    clock_str = datetime.fromtimestamp(target_t).strftime("%H:%M:%S")
+                except Exception:
+                    clock_str = "--:--:--"
 
-            # 1. Vertical dashed crosshair line
-            crosshair_pen = QPen(QColor(100, 116, 139, 180), 1.2, Qt.DashLine)
-            p.setPen(crosshair_pen)
-            p.drawLine(hx, top, hx, bottom)
-
-            # 2. Timestamp badge at bottom axis
-            badge_w = 64
-            badge_h = 16
-            badge_x = max(left, min(right - badge_w, hx - badge_w // 2))
-            p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(QColor("#0F172A")))
-            p.drawRoundedRect(badge_x, bottom + 2, badge_w, badge_h, 3, 3)
-            p.setPen(QColor("#38BDF8"))
-            p.setFont(QFont("Segoe UI", 7, QFont.Bold))
-            p.drawText(QRect(badge_x, bottom + 2, badge_w, badge_h), Qt.AlignCenter, clock_str)
+                header_text = f"🟢 LIVE  {clock_str}  (Current)"
+                header_color = QColor("#10B981")
+                hx = right
 
             # 3. Find closest data points and draw glowing highlight dots on curves
             tooltip_items = []
@@ -475,6 +498,7 @@ class TimeSeriesChartCanvas(QWidget):
                         pt_px = left + pt_frac_x * chart_width
 
                         if is_all_mode:
+                            m_min, m_range = metric_scales.get(metric_key, (0.0, 100.0))
                             tier_low, tier_high = cfg.get("tier", (0.10, 0.90))
                             norm_y = tier_low + (tier_high - tier_low) * min(1.0, max(0.0, (vf - m_min) / m_range))
                             pt_py = bottom - norm_y * chart_height
@@ -495,13 +519,17 @@ class TimeSeriesChartCanvas(QWidget):
                 card_w = 175 if not is_compact else 155
                 card_h = 24 + len(tooltip_items) * 16 + 6
 
-                # Position card dynamically to avoid clipping edges
-                if hx + 15 + card_w <= right:
-                    card_x = hx + 15
+                if is_hover:
+                    # Position card dynamically to avoid clipping edges
+                    if hx + 15 + card_w <= right:
+                        card_x = hx + 15
+                    else:
+                        card_x = max(left + 5, hx - card_w - 15)
+                    card_y = max(top + 5, min(bottom - card_h - 5, self.hover_pos.y() - 15))
                 else:
-                    card_x = max(left + 5, hx - card_w - 15)
-
-                card_y = max(top + 5, min(bottom - card_h - 5, self.hover_pos.y() - 15))
+                    # Position card gracefully in upper-right quadrant for live monitoring
+                    card_x = max(left + 8, min(right - card_w - 18, right - card_w - 20))
+                    card_y = top + 8
 
                 # Background card
                 p.setPen(QPen(QColor("#334155"), 1.2))
@@ -510,8 +538,8 @@ class TimeSeriesChartCanvas(QWidget):
 
                 # Card Header with clock and relative delta
                 p.setFont(QFont("Segoe UI", 7.5 if not is_compact else 7, QFont.Bold))
-                p.setPen(QColor("#38BDF8"))
-                p.drawText(card_x + 8, card_y + 14, f"⏱ {clock_str}  ({rel_str})")
+                p.setPen(header_color)
+                p.drawText(card_x + 8, card_y + 14, header_text)
                 p.setPen(QPen(QColor("#334155"), 0.8))
                 p.drawLine(card_x + 6, card_y + 18, card_x + card_w - 6, card_y + 18)
 

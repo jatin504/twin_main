@@ -384,7 +384,7 @@ class MainWindow(QMainWindow):
         secondRow = QWidget()
         secondRow.setFixedSize(1520, 255)
 
-        self.branchSummary = BranchSummaryWidget()
+        self.branchSummary = BranchSummaryWidget(plant_yaml_path=self.plant_yaml_path)
         self.branchSummary.setParent(secondRow)
         self.branchSummary.setGeometry(0, 0, 390, 250)
         self.branchSummary.show()
@@ -852,7 +852,7 @@ class MainWindow(QMainWindow):
                         Tags.Battery.STORED_ENERGY
                     ),
                     "active_power": db.value(
-                        Tags.PCS.ACTIVE_POWER_OUTPUT
+                        Tags.PCS.ACTIVE_POWER
                     ),
                     "battery_power": db.value(
                         Tags.Battery.POWER
@@ -990,6 +990,12 @@ class MainWindow(QMainWindow):
         self.busVoltageSummary.update_voltage_data(
             profile
         )
+
+        # BRANCH SUMMARY (DYNAMIC FROM TOPOLOGY & NETWORK)
+        if hasattr(self, "branchSummary"):
+            self.branchSummary.update_from_network(
+                self.network_manager
+            )
 
         # 1-HOUR TIME SERIES CHART
         if hasattr(self, "timeSeriesWidget"):

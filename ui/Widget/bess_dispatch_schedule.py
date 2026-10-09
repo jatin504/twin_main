@@ -295,15 +295,15 @@ class BessDispatchScheduleWidget(QFrame):
         schedule_header.setSpacing(0)
         schedule_frame.setFixedHeight(18)
 
-        self._add_header_cell(schedule_header, "Event ID", 78)
-        self._add_header_cell(schedule_header, "Time", 40)
-        self._add_header_cell(schedule_header, "Load (kW)", 50)
-        self._add_header_cell(schedule_header, "Tariff", 46)
-        self._add_header_cell(schedule_header, "Decision", 60)
-        self._add_header_cell(schedule_header, "Dispatch", 50)
-        self._add_header_cell(schedule_header, "Energy (MWh)", 56)
-        self._add_header_cell(schedule_header, "Cycles", 46)
-        self._add_header_cell(schedule_header, "Target SoC", 50)
+        self._add_header_cell(schedule_header, "Event ID", 95)
+        self._add_header_cell(schedule_header, "Time", 38)
+        self._add_header_cell(schedule_header, "Load (kW)", 46)
+        self._add_header_cell(schedule_header, "Tariff", 40)
+        self._add_header_cell(schedule_header, "Decision", 58)
+        self._add_header_cell(schedule_header, "Dispatch", 48)
+        self._add_header_cell(schedule_header, "Exp / Act (MWh)", 78)
+        self._add_header_cell(schedule_header, "Cycles", 42)
+        self._add_header_cell(schedule_header, "Target SoC", 48)
         self._add_header_cell(schedule_header, "Status", 54)
 
         root.addWidget(schedule_frame)
@@ -1199,10 +1199,9 @@ class BessDispatchScheduleWidget(QFrame):
         labels["dispatch"].setText(
             f"{self._number(item.get('dispatch', 0)) * 0.25:.0f}"
         )
-        energy_val = actual_energy if actual_energy is not None else item.get("expected_energy", 0)
-        labels["available_energy"].setText(
-            f"{self._number(energy_val):.2f}"
-        )
+        expected_energy = item.get("expected_energy", item.get("battery_energy_mwh", 0))
+        exp_act_display = f"{self._number(expected_energy):.2f} / {actual_energy_text}"
+        labels["available_energy"].setText(exp_act_display)
         labels["cycle_count"].setText(
             f"{self._number(item.get('cycle_count', 0)):.3f}"
         )
@@ -1231,28 +1230,29 @@ class BessDispatchScheduleWidget(QFrame):
         row.setStyleSheet(self._get_row_style(item, active=active))
 
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(3, 0, 3, 0)
+        layout.setContentsMargins(6, 0, 2, 0)
         layout.setSpacing(0)
 
         status_text = str(item.get("status", "SCHEDULED")).upper()
 
         event_id = QLabel(str(item.get("event_id", "—")))
-        event_id.setFixedWidth(78)
-        event_id.setAlignment(Qt.AlignCenter)
+        event_id.setFixedWidth(95)
+        event_id.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        event_id.setContentsMargins(2, 0, 0, 0)
 
         time = QLabel(str(item.get("time", "")))
-        time.setFixedWidth(40)
+        time.setFixedWidth(38)
         time.setAlignment(Qt.AlignCenter)
 
         load = QLabel(
             f"{self._number(item.get('load', 0)):.0f}"
         )
-        load.setFixedWidth(50)
+        load.setFixedWidth(46)
         load.setAlignment(Qt.AlignCenter)
 
         tariff_val = item.get("tariff_per_kw", item.get("tariff", 0.0))
         tariff = QLabel(f"{self._number(tariff_val):.1f}")
-        tariff.setFixedWidth(46)
+        tariff.setFixedWidth(40)
         tariff.setAlignment(Qt.AlignCenter)
 
         decision_text = str(
@@ -1260,33 +1260,37 @@ class BessDispatchScheduleWidget(QFrame):
         ).upper()
 
         decision = QLabel(decision_text)
-        decision.setFixedWidth(60)
+        decision.setFixedWidth(58)
         decision.setAlignment(Qt.AlignCenter)
 
         dispatch = QLabel(
             f"{self._number(item.get('dispatch', 0)) * 0.25:.0f}"
         )
-        dispatch.setFixedWidth(50)
+        dispatch.setFixedWidth(48)
         dispatch.setAlignment(Qt.AlignCenter)
 
         actual_energy = item.get("actual_energy")
-        energy_val = actual_energy if actual_energy is not None else item.get("expected_energy", 0)
-        available_energy = QLabel(
-            f"{self._number(energy_val):.2f}"
+        actual_energy_text = (
+            f"{self._number(actual_energy):.2f}"
+            if actual_energy is not None
+            else "—"
         )
-        available_energy.setFixedWidth(56)
+        expected_energy = item.get("expected_energy", item.get("battery_energy_mwh", 0))
+        exp_act_display = f"{self._number(expected_energy):.2f} / {actual_energy_text}"
+        available_energy = QLabel(exp_act_display)
+        available_energy.setFixedWidth(78)
         available_energy.setAlignment(Qt.AlignCenter)
 
         cycle_count = QLabel(
             f"{self._number(item.get('cycle_count', 0)):.3f}"
         )
-        cycle_count.setFixedWidth(46)
+        cycle_count.setFixedWidth(42)
         cycle_count.setAlignment(Qt.AlignCenter)
 
         target_soc = QLabel(
             f"{self._number(item.get('soc', 0)):.1f}%"
         )
-        target_soc.setFixedWidth(50)
+        target_soc.setFixedWidth(48)
         target_soc.setAlignment(Qt.AlignCenter)
 
         status_label = QLabel(status_text)

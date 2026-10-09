@@ -956,17 +956,17 @@ class PowerFlowWidget(QFrame):
 
         for unit_id, widget in pcs_widgets.items():
 
+            pcs_id = f"PCS{unit_id}"
+            if pcs_id not in plant_db:
+                continue
+
             try:
 
-                pcs_id = f"PCS{unit_id}"
                 db = plant_db.device(pcs_id)
                 battery_data = {
                     "soc": db.value(Tags.Battery.SOC),
                     "stored_energy": db.value(
                         Tags.Battery.STORED_ENERGY
-                    ),
-                    "stored_capacity_ah": db.value(
-                        Tags.Battery.AH_CAPACITY
                     ),
                     "power": db.value(
                         Tags.Battery.POWER
@@ -985,7 +985,6 @@ class PowerFlowWidget(QFrame):
                 bank_widgets[unit_id].update_data(
                     soc=battery_data["soc"],
                     stored_energy_kwh=battery_data["stored_energy"],
-                    stored_capacity_ah=battery_data["stored_capacity_ah"],
                     battery_voltage=battery_data["battery_voltage"],
                     temperature=battery_data["temperature"],
                     power_kw=battery_data["power"],
@@ -1000,7 +999,7 @@ class PowerFlowWidget(QFrame):
                         Tags.PCS.AC_VOLTAGE
                     ),
                     "active_power": db.value(
-                        Tags.PCS.ACTIVE_POWER_OUTPUT
+                        Tags.PCS.ACTIVE_POWER
                     ),
                     "fault_code": db.value(
                         Tags.Fault.CODE
