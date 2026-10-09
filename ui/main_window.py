@@ -635,9 +635,22 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            self.simulator.reset(
+            new_net = self.simulator.reset(
                 restart=True
             )
+            if new_net is not None:
+                self.network_manager = new_net
+            elif hasattr(self.simulator, "_network") and self.simulator._network is not None:
+                self.network_manager = self.simulator._network
+
+            if hasattr(self, "voltageProfile") and hasattr(self.voltageProfile, "set_simulator"):
+                self.voltageProfile.set_simulator(self.simulator)
+
+            if hasattr(self, "bessDispatchSchedule") and self.bessDispatchSchedule is not None:
+                self.bessDispatchSchedule.elapsed_seconds = 0
+                if hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
+                    self.bessDispatchSchedule.set_running_event(self.bessDispatchSchedule.schedule[0].get("event_id"))
+
             self.simulation_button.setText(
                 "■ Stop Simulation"
             )
@@ -656,6 +669,8 @@ class MainWindow(QMainWindow):
                 }
             """)
             print("Simulation Restarted")
+
+            self.update_voltage_profile()
         except Exception as e:
             print(
                 "RESTART SIMULATION ERROR:",
@@ -981,6 +996,8 @@ class MainWindow(QMainWindow):
             )
 
     def update_voltage_profile(self):
+        if self.simulator and getattr(self.simulator, "_network", None) is not None:
+            self.network_manager = self.simulator._network
 
         if not self.network_manager:
             print("ERROR: NetworkManager is None")
