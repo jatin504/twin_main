@@ -894,14 +894,25 @@ class MainWindow(QMainWindow):
                 "network_losses": grid_db.value(
                     Tags.Network.NETWORK_LOSSES
                 ),
+                "bess_power": grid_db.value(Tags.Battery.POWER),
+                "bess_soc": grid_db.value(Tags.Battery.SOC),
+                "bess_stored_energy": grid_db.value(Tags.Battery.STORED_ENERGY),
             }
 
-            
+            # Get active running event from dispatch schedule
+            active_ev = None
+            if hasattr(self, "bessDispatchSchedule") and hasattr(self.bessDispatchSchedule, "running_row_index"):
+                idx = self.bessDispatchSchedule.running_row_index
+                if idx is not None and hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
+                    if 0 <= idx < len(self.bessDispatchSchedule.schedule):
+                        active_ev = self.bessDispatchSchedule.schedule[idx]
+
             # UPDATE RIBBON
             self.ribbon.update_data(
                 grid_data,
                 pcs_data,
                 schedule_data=self.bessDispatchSchedule.result_data,
+                active_event=active_ev,
             )
 
             latest_load = grid_data.get("load_power", 0)

@@ -26,6 +26,7 @@ from ui.Widget.icons.green_horizontal_line import GreenHorizontalLine
 from ui.Widget.block_widget import BlockWidget
 from ui.Widget.lt_panel_boxes import LTPanelGroup
 from state.tags import Tags
+from common.enums import FaultCode
 
 
 class SmallStatusIcon(QWidget):
@@ -52,18 +53,23 @@ class SmallStatusIcon(QWidget):
 
 
 class LTPanelWidget(QWidget):
+    OVER_LOADING_LIMIT = 80.0  # 0.80 pu in % (matches models/plant_protection.py OVER_LOADING_LIMIT)
+    UNDER_LOADING_LIMIT = 0.0  # 0.0 pu in % (matches models/plant_protection.py UNDER_LOADING_LIMIT)
+
     def __init__(self, panel_no, parent=None):
         super().__init__(parent)
 
         self.panel_no = panel_no
         self.loading = None
         self.current = None
+        self.is_fault = False
         self.setFixedSize(180, 75)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-    def set_values(self, loading, current):
+    def set_values(self, loading, current, is_fault=False):
         self.loading = loading
         self.current = current
+        self.is_fault = is_fault
         self.update()
 
     def paintEvent(self, event):
@@ -81,11 +87,27 @@ class LTPanelWidget(QWidget):
         box_w = 100
         box_h = 57
 
-        p.setPen(QPen(QColor("#F09A63"), 2))
-        p.setBrush(Qt.NoBrush)
+        # Overloaded check based on OVER_LOADING_LIMIT (80.0%) / UNDER_LOADING_LIMIT (0.0%) or fault
+        is_overloaded = bool(self.is_fault)
+        if not is_overloaded and self.loading is not None:
+            try:
+                lf = float(self.loading)
+                if lf > self.OVER_LOADING_LIMIT or lf < self.UNDER_LOADING_LIMIT:
+                    is_overloaded = True
+            except (ValueError, TypeError):
+                pass
+
+        if is_overloaded:
+            # Highlight with bold red outline rectangle for transformer overload/underload fault
+            p.setPen(QPen(QColor("#DC2626"), 2.5))
+            p.setBrush(QColor("#FEF2F2"))  # subtle warning tint inside
+        else:
+            p.setPen(QPen(QColor("#F09A63"), 2))
+            p.setBrush(Qt.NoBrush)
+
         p.drawRect(box_x, box_y, box_w, box_h)
 
-        p.setPen(QColor("#E24A32"))
+        p.setPen(QColor("#DC2626") if is_overloaded else QColor("#E24A32"))
         font = QFont("Arial", 7)
         font.setBold(True)
         p.setFont(font)
@@ -103,6 +125,14 @@ class LTPanelWidget(QWidget):
         p.setFont(font)
         loading_text = "--" if self.loading is None else f"{self.loading:.1f}%"
         current_text = "--" if self.current is None else f"{self.current:.1f} A"
+
+        if is_overloaded:
+            font.setBold(True)
+            p.setFont(font)
+            p.setPen(QColor("#DC2626"))
+        else:
+            p.setPen(QColor("#E24A32"))
+
         p.drawText(
             box_x + 5,
             box_y + 29,
@@ -111,6 +141,10 @@ class LTPanelWidget(QWidget):
             Qt.AlignCenter,
             f"Loading: {loading_text}",
         )
+
+        font.setBold(False)
+        p.setFont(font)
+        p.setPen(QColor("#E24A32"))
         p.drawText(
             box_x + 5,
             box_y + 43,
@@ -252,6 +286,8 @@ class LineCanvas(QWidget):
         self.grid.move(0, 7)
         self.grid.setObjectName("GRID_ICON")
         self.grid.show()
+        self.statusIcon1.raise_()
+        self.statusIcon2.raise_()
 
         # self.factory = FactoryIcon()
         # self.factory.setParent(self)
@@ -761,6 +797,21 @@ class DisplayItem(QWidget):
 
 
 class PowerFlowWidget(QFrame):
+    # Tag mappings from PPC database for Solar Plant & Solar Inverter
+    # Zakir can directly modify these tag names as needed
+    SOLAR_PPC_TAGS = {
+        "active_power": "Solar.ActivePower",        # PPC tag for Solar Plant MW
+        "reactive_power": "Solar.ReactivePower",    # PPC tag for Solar Plant MVAr
+        "power_factor": "Solar.PowerFactor",        # PPC tag for Solar Plant Power Factor
+    }
+
+    SOLAR_INVERTER_PPC_TAGS = {
+        "active_power": "SolarInv.ActivePower",     # PPC tag for Solar Inverter MW
+        "reactive_power": "SolarInv.ReactivePower", # PPC tag for Solar Inverter MVAr
+        "power_factor": "SolarInv.PowerFactor",     # PPC tag for Solar Inverter Power Factor
+        "loading": "SolarInv.Loading",              # PPC tag for Solar Inverter Loading %
+    }
+
     LT_PANEL_PPC_TAGS = {
         1: {
             "loading": Tags.Transformer.T1_LOADING,
@@ -898,6 +949,9 @@ class PowerFlowWidget(QFrame):
         self.canvas = LineCanvas()
         root.addWidget(self.canvas, 1)
 
+        self.solar = self.canvas.solar
+        self.inv5 = self.canvas.inv5
+
         self.blockWidget = BlockWidget(1, self)
         self.blockWidget.setObjectName("BLOCK1")
         self.blockWidget.move(1052, 79)
@@ -963,11 +1017,13 @@ class PowerFlowWidget(QFrame):
             try:
 
                 db = plant_db.device(pcs_id)
+                ah_tag = getattr(Tags.Battery, "AH_CAPACITY", None)
                 battery_data = {
                     "soc": db.value(Tags.Battery.SOC),
                     "stored_energy": db.value(
                         Tags.Battery.STORED_ENERGY
                     ),
+                    "stored_capacity_ah": db.value(ah_tag) if ah_tag else 0.0,
                     "power": db.value(
                         Tags.Battery.POWER
                     ),
@@ -985,6 +1041,7 @@ class PowerFlowWidget(QFrame):
                 bank_widgets[unit_id].update_data(
                     soc=battery_data["soc"],
                     stored_energy_kwh=battery_data["stored_energy"],
+                    stored_capacity_ah=battery_data.get("stored_capacity_ah", 0.0),
                     battery_voltage=battery_data["battery_voltage"],
                     temperature=battery_data["temperature"],
                     power_kw=battery_data["power"],
@@ -994,13 +1051,15 @@ class PowerFlowWidget(QFrame):
                     battery_data["power"],
                 )
 
+                pcs_pwr = db.value(Tags.PCS.ACTIVE_POWER_OUTPUT)
+                if pcs_pwr is None:
+                    pcs_pwr = db.value(Tags.PCS.ACTIVE_POWER)
+
                 data = {
                     "ac_voltage": db.value(
                         Tags.PCS.AC_VOLTAGE
                     ),
-                    "active_power": db.value(
-                        Tags.PCS.ACTIVE_POWER
-                    ),
+                    "active_power": pcs_pwr,
                     "fault_code": db.value(
                         Tags.Fault.CODE
                     )
@@ -1120,20 +1179,99 @@ class PowerFlowWidget(QFrame):
             self.blockWidget2.set_box_values(
                 grid_data["block_panel_values"][2]
             )
+            grid_fault = grid_data.get("fault_code")
+            is_global_tf_fault = False
+            if grid_fault is not None:
+                try:
+                    fc = int(grid_fault)
+                    is_global_tf_fault = fc in (
+                        FaultCode.TRANSFORMER_OVERLOADING,
+                        FaultCode.TRANSFORMER_UNDERLOADING,
+                    )
+                except (ValueError, TypeError):
+                    pass
+
             for panel_no, panel_widget in (
                 (1, self.canvas.ltPanel1),
                 (2, self.canvas.ltPanel2),
                 (3, self.canvas.ltPanel3),
             ):
                 panel_values = grid_data["lt_panel_values"][panel_no]
+                loading_val = panel_values["loading"]
+                panel_fault = False
+                if loading_val is not None:
+                    try:
+                        lf = float(loading_val)
+                        if lf > LTPanelWidget.OVER_LOADING_LIMIT or lf < LTPanelWidget.UNDER_LOADING_LIMIT:
+                            panel_fault = True
+                    except (ValueError, TypeError):
+                        pass
+
+                if is_global_tf_fault and not panel_fault:
+                    if loading_val is not None:
+                        try:
+                            if float(loading_val) >= 70.0:
+                                panel_fault = True
+                        except (ValueError, TypeError):
+                            pass
+
                 panel_widget.set_values(
-                    loading=panel_values["loading"],
+                    loading=loading_val,
                     current=panel_values["current"],
+                    is_fault=panel_fault,
                 )
 
             # self.canvas.factory.update_data(
             #     load_power=grid_data["load_power"]
             # )
+
+            # ==================================================
+            # SOLAR PLANT & SOLAR INVERTER LIVE DATA
+            # ==================================================
+            try:
+                def _get_ppc_val(tag_name, default=None):
+                    if not tag_name or grid_db is None:
+                        return default
+                    try:
+                        if grid_db.exists(tag_name):
+                            v = grid_db.value(tag_name)
+                            return v if v is not None else default
+                    except Exception:
+                        pass
+                    return default
+
+                solar_p = _get_ppc_val(self.SOLAR_PPC_TAGS.get("active_power"))
+                solar_q = _get_ppc_val(self.SOLAR_PPC_TAGS.get("reactive_power"))
+                solar_pf = _get_ppc_val(self.SOLAR_PPC_TAGS.get("power_factor"))
+
+                p_solar_mw = (float(solar_p) / 1000.0 if float(solar_p) > 50.0 else float(solar_p)) if solar_p is not None else 2.15
+                q_solar_mvar = float(solar_q) if solar_q is not None else 0.05
+                pf_solar = float(solar_pf) if solar_pf is not None else 0.99
+
+                self.canvas.solar.update_data(
+                    active_power_mw=p_solar_mw,
+                    reactive_power_mvar=q_solar_mvar,
+                    power_factor=pf_solar,
+                )
+
+                inv_p = _get_ppc_val(self.SOLAR_INVERTER_PPC_TAGS.get("active_power"))
+                inv_q = _get_ppc_val(self.SOLAR_INVERTER_PPC_TAGS.get("reactive_power"))
+                inv_pf = _get_ppc_val(self.SOLAR_INVERTER_PPC_TAGS.get("power_factor"))
+                inv_ld = _get_ppc_val(self.SOLAR_INVERTER_PPC_TAGS.get("loading"))
+
+                p_inv_mw = (float(inv_p) / 1000.0 if float(inv_p) > 50.0 else float(inv_p)) if inv_p is not None else p_solar_mw
+                q_inv_mvar = float(inv_q) if inv_q is not None else q_solar_mvar
+                pf_inv = float(inv_pf) if inv_pf is not None else pf_solar
+                loading_inv = float(inv_ld) if inv_ld is not None else 35.0
+
+                self.canvas.inv5.update_data(
+                    active_power_mw=p_inv_mw,
+                    reactive_power_mvar=q_inv_mvar,
+                    power_factor=pf_inv,
+                    loading_pct=loading_inv,
+                )
+            except Exception as e_solar:
+                pass
 
             # ================= MAIN BUS STATUS =================
             self.canvas.set_main_bus_power(

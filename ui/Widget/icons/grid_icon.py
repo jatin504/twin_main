@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -9,13 +10,14 @@ class GridIcon(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setFixedSize(140, 140)
+        self.setFixedSize(145, 140)
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.grid_voltage = 0.0
         self.import_power = 0.0
         self.export_power = 0.0
         self.frequency = 0.0
-        self.fault_code = "NONE"
+        self.fault_code = "None"
 
     def paintEvent(self, e):
 
@@ -92,7 +94,24 @@ class GridIcon(QWidget):
 
         p.setPen(QColor("#111827"))
         p.drawText(55, 86, f"Freq: {self.frequency:.2f} Hz")
-        p.drawText(55, 102, f"Fault: {self.fault_code}")
+
+        # Fault text rendering (multiline word wrap & alert coloring so long fault text never hides)
+        is_fault_active = (self.fault_code not in ("None", "NONE", "N/A"))
+        if is_fault_active:
+            p.setPen(QColor("#DC2626"))  # Bold alert RED for active fault
+            font.setBold(True)
+            p.setFont(font)
+        else:
+            p.setPen(QColor("#111827"))
+            font.setBold(False)
+            p.setFont(font)
+
+        fault_rect = QRect(55, 96, 90, 42)
+        p.drawText(
+            fault_rect,
+            Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+            f"Fault: {self.fault_code}",
+        )
 
     def update_data(
         self,
@@ -116,4 +135,5 @@ class GridIcon(QWidget):
             except (TypeError, ValueError):
                 self.fault_code = f"Unknown ({fault_code})"
 
+        self.setToolTip(f"Grid Status | Voltage: {self.grid_voltage:.2f} kV | Fault: {self.fault_code}")
         self.update()

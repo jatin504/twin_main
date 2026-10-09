@@ -170,8 +170,8 @@ class Ribbon(QWidget):
         self.bess_charge_discharge = RibbonItem(
             "🔋",
             "BESS Charge / Discharge",
-            "0.00 MW",
-            "Charge  0.00 | Discharge  0.00",
+            "0.00 MWh",
+            "Charge  0.00 | Discharge  0.00 MW",
             "#16A34A",
         )
 
@@ -194,8 +194,8 @@ class Ribbon(QWidget):
         self.soc_change = RibbonItem(
             "◉",
             "SOC Change",
-            "0.00 %",
-            "Δ SOC",
+            "+0.00 %",
+            "SOC 50 %",
             "#111827",
         )
 
@@ -255,6 +255,7 @@ class Ribbon(QWidget):
         pcs_data,
         solar_data=None,
         schedule_data=None,
+        active_event=None,
     ):
 
         if grid_data is None:
@@ -303,171 +304,165 @@ class Ribbon(QWidget):
                 "solar_power",
                 0,
             ),
-        )
-
-        
-        # BESS
-        
+        )        # --------------------------------------------------
+        # AVERAGE SOC & TOTAL DISCHARGE
+        # --------------------------------------------------
 
         total_discharge = 0
-
-        total_usable_energy = 0
-        total_available_energy = 0
-
         total_soc = 0
 
         for pcs in pcs_data:
-
-            battery_power = pcs.get(
-                "battery_power",
-                0,
-            )
-
-            soc = pcs.get(
-                "soc",
-                0,
-            )
-
-            stored_energy_mwh = pcs.get(
-                "stored_energy",
-                0,
-            ) / 1000
-
-            # ------------------------------------------------
-            # CHARGE / DISCHARGE
-            # ------------------------------------------------
+            battery_power = float(pcs.get("battery_power", 0.0) or 0.0)
+            soc = float(pcs.get("soc", 0.0) or 0.0)
 
             if battery_power > 0:
                 total_discharge += battery_power
 
-            # ------------------------------------------------
-            # ENERGY
-            # ------------------------------------------------
-
-            total_available_energy += stored_energy_mwh
-            total_usable_energy += stored_energy_mwh * 0.80
-
-            # ------------------------------------------------
-            # SOC
-            # ------------------------------------------------
-
             total_soc += soc
 
-        
-        # AVERAGE SOC
-        
+        avg_soc = (total_soc / len(pcs_data)) if pcs_data else float(grid_data.get("bess_soc", 0.0) or 0.0)
 
-        if pcs_data:
+        # --------------------------------------------------
+        # ACTIVE SCHEDULE EVENT
+        # --------------------------------------------------
 
-            avg_soc = total_soc / len(pcs_data)
+        if active_event is None:
+            if isinstance(schedule_data, dict):
+                running_id = schedule_data.get("running_event_id") or schedule_data.get("active_event_id")
+                schedule_events = schedule_data.get("schedule", [])
+                if running_id and isinstance(schedule_events, list):
+                    for ev in schedule_events:
+                        if isinstance(ev, dict) and ev.get("event_id") == running_id:
+                            active_event = ev
+                            break
+                if not active_event and isinstance(schedule_events, list) and schedule_events:
+                    results = schedule_data.get("results", [])
+                    if isinstance(results, list):
+                        for res in results:
+                            if isinstance(res, dict) and str(res.get("status", "")).lower() in ("running", "in_progress"):
+                                ev_dec = res.get("bess_event_decision", {})
+                                if ev_dec.get("event_id"):
+                                    for ev in schedule_events:
+                                        if ev.get("event_id") == ev_dec["event_id"]:
+                                            active_event = ev
+                                            break
+                    if not active_event:
+                        active_event = schedule_events[0]
+            if active_event is None:
+                active_event = {}
 
-        else:
-
-            avg_soc = 0
-
-        
-        # SOC CHANGE
-        
-
-        schedule_events = schedule_data.get(
-            "schedule",
-            [],
-        )
-        active_soc = avg_soc
-        soc_delta = 0.0
-        if isinstance(schedule_events, list) and schedule_events:
-            active_event = schedule_events[-1]
-            if isinstance(active_event, dict):
-                active_soc = active_event.get(
-                    "soc_percent",
-                    avg_soc,
-                )
-
-            if len(schedule_events) >= 2:
-                previous_event = schedule_events[-2]
-                if (
-                    isinstance(active_event, dict)
-                    and isinstance(previous_event, dict)
-                ):
-                    active_soc = active_event.get(
-                        "soc_percent",
-                        avg_soc,
-                    )
-                    previous_soc = previous_event.get(
-                        "soc_percent",
-                        0.0,
-                    )
-                    soc_delta = active_soc - previous_soc
-
-        
-        # TOTAL LOAD
-        # kW -> MW
-        
+        # --------------------------------------------------
+        # TOTAL LOAD (kW -> MW)
+        # --------------------------------------------------
 
         self.total_load.valueLbl.setText(
             f"{load_power / 1000:.3f} MW"
         )
 
-        
+        # --------------------------------------------------
         # SOLAR ENERGY
-        
+        # --------------------------------------------------
 
         self.solar_energy.valueLbl.setText(
             f"{solar_power / 1000:.2f} MW"
         )
-
         self.solar_energy.subLbl.setText(
             "Solar Generation"
         )
 
-        
-        # BESS CHARGE / DISCHARGE
-        
+        # --------------------------------------------------
+        # 3. BESS CHARGE / DISCHARGE
+        # Green text in MWh from schedule: target_charge_energy_mwh / target_discharge_energy_mwh
+        # Subtext from PPC database Tags.Battery.POWER (+Ve -> Discharge, -Ve -> Charge)
+        # --------------------------------------------------
 
-        discharge_mw = total_discharge / 1000
-        charge_energy_mwh = schedule_data.get(
-            "target_charge_energy_mwh",
-            0,
-        )
-        discharge_energy_mwh = schedule_data.get(
-            "target_discharge_energy_mwh",
-            0,
-        )
+        target_charge_mwh = float(active_event.get("target_charge_energy_mwh", 0.0) or 0.0)
+        target_discharge_mwh = float(active_event.get("target_discharge_energy_mwh", 0.0) or 0.0)
+        decision = str(active_event.get("decision", "")).lower()
+
+        if "charge" in decision and "discharge" not in decision:
+            target_energy_mwh = target_charge_mwh if target_charge_mwh > 0 else target_discharge_mwh
+        elif "discharge" in decision:
+            target_energy_mwh = target_discharge_mwh if target_discharge_mwh > 0 else target_charge_mwh
+        else:
+            target_energy_mwh = max(target_charge_mwh, target_discharge_mwh)
 
         self.bess_charge_discharge.valueLbl.setText(
-            f"{discharge_mw:.2f} MW"
+            f"{target_energy_mwh:.2f} MWh"
         )
+
+        bess_power = grid_data.get("bess_power")
+        if bess_power is None:
+            bess_power = sum(float(pcs.get("battery_power", 0.0) or 0.0) for pcs in pcs_data)
+        bess_power = float(bess_power or 0.0)
+
+        if bess_power > 0:
+            discharge_power_mw = abs(bess_power) / 1000.0
+            charge_power_mw = 0.0
+        elif bess_power < 0:
+            charge_power_mw = abs(bess_power) / 1000.0
+            discharge_power_mw = 0.0
+        else:
+            charge_power_mw = 0.0
+            discharge_power_mw = 0.0
 
         self.bess_charge_discharge.subLbl.setText(
-            f"Charge  {charge_energy_mwh:.2f} MWh | "
-            f"Discharge  {discharge_energy_mwh:.2f} MWh"
+            f"Charge  {charge_power_mw:.2f} | Discharge  {discharge_power_mw:.2f} MW"
         )
 
-        
-        # BESS USABLE / AVAILABLE
-        
+        # --------------------------------------------------
+        # 4. BESS USABLE / AVAILABLE
+        # Available: live stored energy or event battery_energy_mwh
+        # Usable: Available - Risk Reserve
+        # --------------------------------------------------
+
+        ev_avail = active_event.get("battery_energy_mwh") or active_event.get("available_energy")
+        stored_pcs_mwh = sum(float(pcs.get("stored_energy", 0.0) or 0.0) for pcs in pcs_data) / 1000.0
+
+        if ev_avail is not None and float(ev_avail) > 0:
+            total_available_energy = float(ev_avail)
+        elif stored_pcs_mwh > 0:
+            total_available_energy = stored_pcs_mwh
+        else:
+            total_available_energy = float(grid_data.get("bess_stored_energy", 0.0) or 0.0) / 1000.0
+
+        risk_reserve_mwh = float(active_event.get("risk_reserve_mwh", 0.0) or 0.0)
+        if risk_reserve_mwh > 0:
+            total_usable_energy = max(0.0, total_available_energy - risk_reserve_mwh)
+        else:
+            total_capacity_mwh = 16.0
+            total_usable_energy = max(0.0, total_capacity_mwh * max(0.0, avg_soc - 10.0) / 100.0)
 
         self.bess_usable_available.valueLbl.setText(
             f"{total_usable_energy:.2f} MWh"
         )
-
         self.bess_usable_available.subLbl.setText(
             f"Available  {total_available_energy:.2f} MWh"
         )
 
-        
-        # SOC CHANGE
-        
+        # --------------------------------------------------
+        # 5. SOC CHANGE
+        # Formula: Live SOC - Event Start SOC
+        # --------------------------------------------------
+
+        ev_start_soc = active_event.get("soc_percent")
+        if ev_start_soc is None:
+            ev_start_soc = active_event.get("soc", avg_soc)
+        ev_start_soc = float(ev_start_soc or avg_soc)
+
+        live_soc = float(avg_soc)
+        soc_delta = live_soc - ev_start_soc
 
         sign = "+" if soc_delta >= 0 else ""
-
         self.soc_change.valueLbl.setText(
             f"{sign}{soc_delta:.2f} %"
         )
-
         self.soc_change.subLbl.setText(
-            f"SOC {active_soc:.2f} %"
+            f"SOC  {int(round(live_soc))} %"
         )
+
+
+
 
         
         # GRID IMPORT / EXPORT

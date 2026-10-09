@@ -164,11 +164,20 @@ class TimeSeriesChartCanvas(QWidget):
 
         is_compact = (w < 460)
 
-        # Canvas bounds
-        left = 42 if is_compact else 65
-        right = w - (10 if is_compact else 24)
-        top = 10 if is_compact else 25
-        bottom = h - (24 if is_compact else 38)
+        # Canvas bounds (Multiple Y-axes: reserve space on Left for Power [kW] and Right for SOC [%]/Voltage [V])
+        is_all_mode = (self.selected_metric == "ALL")
+
+        if is_all_mode:
+            left = 32 if is_compact else 52
+            right = w - (68 if is_compact else 80)
+            top = 18 if is_compact else 28
+            bottom = h - (24 if is_compact else 38)
+        else:
+            left = 42 if is_compact else 65
+            right = w - (10 if is_compact else 24)
+            top = 10 if is_compact else 25
+            bottom = h - (24 if is_compact else 38)
+
         chart_width = max(10, right - left)
         chart_height = max(10, bottom - top)
 
@@ -225,13 +234,25 @@ class TimeSeriesChartCanvas(QWidget):
 
         cutoff_ts = anchor_ts - self.window_seconds
 
-        is_all_mode = (self.selected_metric == "ALL")
+        # -------------------------------------------------------------------------
+        # MULTIPLE Y-AXES SCALING LOGIC
+        # -------------------------------------------------------------------------
+        # Axis 1: Power (kW) -> Left Axis
+        # Axis 2: SOC (%) -> Right Axis
+        # Axis 3: Voltage (V / kV) -> Scaled independently
+        # Axis 4: Frequency (Hz) -> Scaled independently
+        # -------------------------------------------------------------------------
 
-        if not is_all_mode:
-            single_cfg = self.METRIC_CONFIG.get(self.selected_metric, {})
-            unit = single_cfg.get("unit", "")
-            pts = self.history_data.get(self.selected_metric, [])
-            vals = []
+        # Group metrics by unit
+        power_vals = []
+        soc_vals = []
+        volt_vals = []
+        freq_vals = []
+
+        for m_key in active_keys:
+            pts = self.history_data.get(m_key, [])
+            cfg = self.METRIC_CONFIG.get(m_key, {})
+            unit = cfg.get("unit", "")
             for pt in pts:
                 t = pt.get("time", 0.0)
                 if t < cutoff_ts:
@@ -239,13 +260,74 @@ class TimeSeriesChartCanvas(QWidget):
                 v = pt.get("value")
                 if v is not None:
                     try:
-                        vals.append(float(v))
+                        vf = float(v)
+                        if unit == "kW":
+                            power_vals.append(vf)
+                        elif unit == "%":
+                            soc_vals.append(vf)
+                        elif unit in ("V", "kV"):
+                            vf_v = (vf / 33.0) * 433.0 if unit == "kV" and vf > 0 else vf
+                            volt_vals.append(vf_v)
+                        elif unit == "Hz":
+                            freq_vals.append(vf)
                     except (ValueError, TypeError):
                         pass
 
-            if vals:
-                min_val = min(vals)
-                max_val = max(vals)
+        # Power Axis Range (Left)
+        if power_vals:
+            power_min = min(power_vals)
+            power_max = max(power_vals)
+            if power_min == power_max:
+                power_min, power_max = (power_min * 0.9, power_min * 1.1)
+            else:
+                p_pad = (power_max - power_min) * 0.12
+                power_min = max(0.0, power_min - p_pad) if power_min >= 0 else (power_min - p_pad)
+                power_max = power_max + p_pad
+        else:
+            power_min, power_max = (0.0, 5000.0)
+        power_range = max(1e-6, power_max - power_min)
+
+        # SOC Axis Range (Right)
+        if soc_vals:
+            soc_min = max(0.0, min(soc_vals) - 5.0)
+            soc_max = min(100.0, max(soc_vals) + 5.0)
+            if soc_min >= soc_max:
+                soc_min, soc_max = (0.0, 100.0)
+        else:
+            soc_min, soc_max = (0.0, 100.0)
+        soc_range = max(1e-6, soc_max - soc_min)
+
+        # Voltage Axis Range
+        if volt_vals:
+            volt_min = min(volt_vals)
+            volt_max = max(volt_vals)
+            if volt_min == volt_max:
+                volt_min, volt_max = (volt_min * 0.95, volt_min * 1.05)
+            else:
+                v_pad = (volt_max - volt_min) * 0.15
+                volt_min -= v_pad
+                volt_max += v_pad
+        else:
+            volt_min, volt_max = (380.0, 440.0)
+        volt_range = max(1e-6, volt_max - volt_min)
+
+        # Frequency Axis Range
+        if freq_vals:
+            freq_min = min(freq_vals) - 0.2
+            freq_max = max(freq_vals) + 0.2
+        else:
+            freq_min, freq_max = (49.0, 51.0)
+        freq_range = max(1e-6, freq_max - freq_min)
+
+        # Single Metric fallback range
+        if not is_all_mode:
+            single_cfg = self.METRIC_CONFIG.get(self.selected_metric, {})
+            s_unit = single_cfg.get("unit", "")
+            s_pts = self.history_data.get(self.selected_metric, [])
+            s_vals = [float(pt["value"]) for pt in s_pts if pt.get("value") is not None and pt.get("time", 0.0) >= cutoff_ts]
+            if s_vals:
+                min_val = min(s_vals)
+                max_val = max(s_vals)
                 if min_val == max_val:
                     nom_min, nom_max = single_cfg.get("nominal", (min_val * 0.9, min_val * 1.1))
                     min_val = min(min_val, nom_min)
@@ -256,14 +338,12 @@ class TimeSeriesChartCanvas(QWidget):
                     max_val += padding
             else:
                 min_val, max_val = single_cfg.get("nominal", (0.0, 100.0))
-        else:
-            min_val = 0.0
-            max_val = 100.0
-            unit = "%"
+            val_range = max(1e-6, max_val - min_val)
+            unit = s_unit
 
-        val_range = max(1e-6, max_val - min_val)
-
-        # Draw Grid & Background Grid Lines
+        # -------------------------------------------------------------------------
+        # DRAW GRID & BACKGROUND LINES
+        # -------------------------------------------------------------------------
         grid_pen = QPen(QColor("#F1F5F9"), 1, Qt.SolidLine)
         p.setPen(grid_pen)
 
@@ -271,21 +351,49 @@ class TimeSeriesChartCanvas(QWidget):
         font_axis = QFont("Segoe UI", 7 if is_compact else 8)
         p.setFont(font_axis)
 
+        # Draw Horizontal grid lines & Multi-Axis ticks
         for i in range(y_ticks):
             frac = i / (y_ticks - 1)
             y = bottom - (frac * chart_height)
             p.setPen(grid_pen)
             p.drawLine(left, int(y), right, int(y))
 
-            val_at_y = min_val + frac * (max_val - min_val)
-            p.setPen(QColor("#64748B"))
             if is_all_mode:
-                p.drawText(2 if is_compact else 8, int(y + 4), f"{val_at_y:.0f}%")
+                # 1. Left Y-Axis: Power (kW)
+                val_power = power_min + frac * (power_max - power_min)
+                p.setPen(QColor("#0D9488"))  # Teal for Power
+                if is_compact:
+                    p.drawText(2, int(y + 4), f"{val_power:.0f}")
+                else:
+                    p.drawText(4, int(y + 4), f"{val_power:.0f} kW")
+
+                # 2. Right Y-Axis Column 1: Voltage (V)
+                val_volt = volt_min + frac * (volt_max - volt_min)
+                p.setPen(QColor("#2563EB"))  # Royal Blue for Voltage
+                p.drawText(right + (7 if is_compact else 10), int(y + 4), f"{val_volt:.0f}V" if is_compact else f"{val_volt:.0f} V")
+
+                # 3. Right Y-Axis Column 2: SOC (%)
+                val_soc = soc_min + frac * (soc_max - soc_min)
+                p.setPen(QColor("#16A34A"))  # Green for SOC
+                p.drawText(right + (36 if is_compact else 44), int(y + 4), f"{val_soc:.0f}%")
             else:
+                val_at_y = min_val + frac * (max_val - min_val)
+                p.setPen(QColor("#64748B"))
                 if is_compact and len(unit) > 2:
                     p.drawText(2, int(y + 4), f"{val_at_y:.0f}")
                 else:
                     p.drawText(2 if is_compact else 8, int(y + 4), f"{val_at_y:.1f} {unit}")
+
+        # Top Axis Headers in ALL mode (Left=Power, Right=Voltage & SOC)
+        if is_all_mode:
+            p.setFont(QFont("Segoe UI", 6 if is_compact else 7, QFont.Bold))
+            p.setPen(QColor("#0D9488"))
+            p.drawText(2, top - 4, "kW (Power)")
+            p.setPen(QColor("#2563EB"))
+            p.drawText(right + (4 if is_compact else 8), top - 4, "V (Volt)")
+            p.setPen(QColor("#16A34A"))
+            p.drawText(right + (34 if is_compact else 42), top - 4, "% (SOC)")
+            p.setFont(font_axis)
 
         # Vertical time grid lines
         if is_compact:
@@ -325,10 +433,13 @@ class TimeSeriesChartCanvas(QWidget):
                 else:
                     p.drawText(int(x - 14), bottom + 18, label)
 
-        # Baseline
+        # Baseline axis borders
         p.setPen(QPen(QColor("#CBD5E1"), 1.2))
         p.drawLine(left, bottom, right, bottom)
         p.drawLine(left, top, left, bottom)
+        if is_all_mode:
+            p.setPen(QPen(QColor("#A7F3D0"), 1.2))
+            p.drawLine(right, top, right, bottom)
 
         # Store per-metric scale for exact highlight dot positioning
         metric_scales = {}
@@ -347,20 +458,20 @@ class TimeSeriesChartCanvas(QWidget):
                 "nominal": (0.0, 100.0),
             })
             line_color = QColor(cfg["color"])
+            m_unit = cfg.get("unit", "")
 
+            # Register scale for hover detection
             if is_all_mode:
-                m_vals = [float(pt["value"]) for pt in pts if pt.get("value") is not None and pt.get("time", 0.0) >= cutoff_ts]
-                if m_vals:
-                    m_min = min(m_vals)
-                    m_max = max(m_vals)
-                    if m_min == m_max:
-                        nom_min, nom_max = cfg.get("nominal", (m_min * 0.9, m_min * 1.1))
-                        m_min = min(m_min, nom_min)
-                        m_max = max(m_max, nom_max)
+                if m_unit == "kW":
+                    metric_scales[metric_key] = (power_min, power_range)
+                elif m_unit == "%":
+                    metric_scales[metric_key] = (soc_min, soc_range)
+                elif m_unit in ("V", "kV"):
+                    metric_scales[metric_key] = (volt_min, volt_range)
+                elif m_unit == "Hz":
+                    metric_scales[metric_key] = (freq_min, freq_range)
                 else:
-                    m_min, m_max = cfg.get("nominal", (0.0, 100.0))
-                m_range = max(1e-6, m_max - m_min)
-                metric_scales[metric_key] = (m_min, m_range)
+                    metric_scales[metric_key] = (0.0, 100.0)
 
             curve_points = []
             for pt in pts:
@@ -379,9 +490,17 @@ class TimeSeriesChartCanvas(QWidget):
                 frac_x = min(1.0, max(0.0, dt / self.window_seconds))
 
                 if is_all_mode:
-                    tier_low, tier_high = cfg.get("tier", (0.10, 0.90))
-                    norm_y = tier_low + (tier_high - tier_low) * min(1.0, max(0.0, (vf - m_min) / m_range))
-                    frac_y = norm_y
+                    if m_unit == "kW":
+                        frac_y = min(1.0, max(0.0, (vf - power_min) / power_range))
+                    elif m_unit == "%":
+                        frac_y = min(1.0, max(0.0, (vf - soc_min) / soc_range))
+                    elif m_unit in ("V", "kV"):
+                        vf_v = (vf / 33.0) * 433.0 if m_unit == "kV" and vf > 0 else vf
+                        frac_y = min(1.0, max(0.0, (vf_v - volt_min) / volt_range))
+                    elif m_unit == "Hz":
+                        frac_y = min(1.0, max(0.0, (vf - freq_min) / freq_range))
+                    else:
+                        frac_y = min(1.0, max(0.0, vf / 100.0))
                 else:
                     frac_y = min(1.0, max(0.0, (vf - min_val) / val_range))
 
@@ -402,6 +521,7 @@ class TimeSeriesChartCanvas(QWidget):
             elif len(curve_points) == 1:
                 p.setBrush(QBrush(line_color))
                 p.drawEllipse(curve_points[0], 4, 4)
+
 
         # Floating tooltip card & inspection (Interactive Hover or Pinned Live)
         has_any_pts = any(bool(self.history_data.get(k)) for k in active_keys)
@@ -499,8 +619,8 @@ class TimeSeriesChartCanvas(QWidget):
 
                         if is_all_mode:
                             m_min, m_range = metric_scales.get(metric_key, (0.0, 100.0))
-                            tier_low, tier_high = cfg.get("tier", (0.10, 0.90))
-                            norm_y = tier_low + (tier_high - tier_low) * min(1.0, max(0.0, (vf - m_min) / m_range))
+                            vf_plot = (vf / 33.0) * 433.0 if cfg.get("unit") == "kV" and vf > 0 else vf
+                            norm_y = min(1.0, max(0.0, (vf_plot - m_min) / m_range))
                             pt_py = bottom - norm_y * chart_height
                         else:
                             pt_py = bottom - min(1.0, max(0.0, (vf - min_val) / val_range)) * chart_height
