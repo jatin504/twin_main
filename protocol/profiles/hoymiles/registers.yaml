@@ -1,0 +1,16 @@
+registers:
+
+  - name: Battery.SOC
+    address: 40021
+    datatype: uint16
+    scale: 10
+
+  - name: PCS.ActivePowerOutput
+    address: 40030
+    datatype: int32
+    scale: 1
+
+  - name: Grid.Frequency
+    address: 40040
+    datatype: uint16
+    scale: 100

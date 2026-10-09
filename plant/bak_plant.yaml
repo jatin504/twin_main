@@ -1,0 +1,136 @@
+plant:
+  name: Demo BESS
+  frequency: 44
+  utility:
+    bus: GRID_11KV
+    voltage_kv: 11
+    short_circuit_mva: 500
+    x_r_ratio: 10
+transformers:
+- id: T1
+  hv_bus: GRID_11KV
+  lv_bus: BUS_690_A
+  rating_kva: 5000
+  hv_kv: 11
+  lv_kv: 0.69
+  connection: Dyn11
+  impedance:
+    r_pu: 0.01
+    x_pu: 0.04
+lv_buses:
+- id: BUS_690_A
+  voltage_kv: 0.69
+- id: PCS_BUS
+  voltage_kv: 0.69
+- id: PV_BUS
+  voltage_kv: 0.69
+- id: LOAD_BUS
+  voltage_kv: 0.69
+feeders:
+- id: PCS_FEEDER_1
+  from: BUS_690_A
+  to: PCS_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: PV_FEEDER
+  from: BUS_690_A
+  to: PV_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: LOAD_FEEDER
+  from: BUS_690_A
+  to: LOAD_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+pcs:
+- id: PCS1
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_1
+  template: PCS2000
+  slave_id: 1
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+- id: PCS2
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_1
+  template: PCS2000
+  slave_id: 2
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+- id: PCS3
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_1
+  template: PCS2000
+  slave_id: 3
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+- id: PCS4
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_1
+  template: PCS2000
+  slave_id: 4
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+loads:
+- id: PLANT_LOAD
+  bus: LOAD_BUS
+  default_kw: 0
+  pf: 1.0
+pv:
+- id: PV1
+  bus: PV_BUS
+  feeder: PV_FEEDER
+  template: PV2000
+filters:
+- id: HF1
+  bus: BUS_690_A
+protection:
+- breaker: GRID_INCOMER
+  relay: ANSI50_51
+- breaker: PCS_FEEDER_1
+  relay: ANSI50
+templates:
+  PCS3500:
+    rated_power_kw: 3500
+    converter:
+      dc_voltage: 1100
+      filter:
+        r: 0.0002
+        l: 0.001
+        c: 1.0e-05
+    battery:
+      capacity_kwh: 5016
+      initial_soc_percent: 0
+  PCS2000:
+    rated_power_kw: 2000
+    converter:
+      dc_voltage: 1100
+      filter:
+        r: 0.0002
+        l: 0.001
+        c: 1.0e-05
+    battery:
+      capacity_kwh: 6500
+      initial_soc_percent: 0
+  PV2000:
+    rated_power_kw: 2000
+    converter:
+      dc_voltage: 1000
+      filter:
+        r: 0.0002
+        l: 0.001
+        c: 1.0e-05

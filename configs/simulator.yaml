@@ -1,0 +1,22 @@
+simulation:
+  dt: 0.1
+  realtime: true
+  realtime_factor: 1.0
+
+logging:
+  level: INFO
+  console: true
+  file: true
+  directory: logs
+
+grid:
+  nominal_voltage: 690.0
+  nominal_frequency: 50.0
+
+battery:
+  capacity_kwh: 3725
+  max_charge_kw: 3500
+  max_discharge_kw: 3500
+
+scheduler:
+  tick_ms: 10

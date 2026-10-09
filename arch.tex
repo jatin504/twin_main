@@ -1,0 +1,53 @@
+cogneta_pcs_twin/
+│
+├── common/
+│   ├── constants.py
+│   ├── enums.py
+│   ├── config.py
+│   ├── logger.py
+│   └── datatypes.py
+│
+├── core/
+│   ├── clock.py
+│   ├── context.py
+│   ├── events.py
+│   ├── scheduler.py
+│   ├── simulator.py
+│   └── main.py
+│
+├── state/
+│   ├── __init__.py
+│   ├── quality.py
+│   ├── variable.py
+│   ├── database.py
+│   └── tags.py
+│
+├── models/
+│   ├── base.py
+│   ├── battery.py
+│   ├── grid.py
+│   ├── power_flow.py
+│   ├── protection.py
+│   ├── thermal.py
+│   ├── state_machine.py
+│   ├── gfl.py
+│   ├── gfm.py
+│   └── vsg.py
+│
+├── protocol/
+│   ├── mapper.py
+│   ├── register_bank.py
+│   ├── command_mapper.py
+│   └── modbus_server.py
+│
+├── profiles/
+│   └── hoymiles/
+│
+└── tests/
+
+
++3500 kW  = Battery Discharging
+            Battery → PCS → Grid
+
+-3500 kW  = Battery Charging
+            Grid → PCS → Battery

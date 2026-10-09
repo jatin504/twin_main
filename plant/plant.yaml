@@ -1,0 +1,209 @@
+plant:
+  name: Demo BESS
+  frequency: 44
+  utility:
+    bus: GRID_33KV
+    voltage_kv: 33
+    short_circuit_mva: 500
+    x_r_ratio: 10
+transformers:
+- id: T1
+  hv_bus: GRID_33KV
+  lv_bus: BUS_433_A
+  rating_kva: 2500
+  hv_kv: 33
+  lv_kv: 0.433
+  connection: Dyn11
+  impedance:
+    r_pu: 0.01
+    x_pu: 0.04
+- id: T2
+  hv_bus: GRID_33KV
+  lv_bus: BUS_433_B
+  rating_kva: 2500
+  hv_kv: 33
+  lv_kv: 0.433
+  connection: Dyn11
+  impedance:
+    r_pu: 0.01
+    x_pu: 0.04
+- id: T3
+  hv_bus: GRID_33KV
+  lv_bus: BUS_433_C
+  rating_kva: 2500
+  hv_kv: 33
+  lv_kv: 0.433
+  connection: Dyn11
+  impedance:
+    r_pu: 0.01
+    x_pu: 0.04
+lv_buses:
+- id: BUS_433_A
+  voltage_kv: 0.433
+- id: BUS_433_B
+  voltage_kv: 0.433
+- id: BUS_433_C
+  voltage_kv: 0.433
+- id: PCS_BUS
+  voltage_kv: 0.433
+- id: PV_BUS
+  voltage_kv: 0.433
+- id: LOAD_BUS
+  voltage_kv: 0.433
+feeders:
+- id: PCS_FEEDER_1
+  from: BUS_433_A
+  to: PCS_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: PCS_FEEDER_2
+  from: BUS_433_A
+  to: PCS_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: PCS_FEEDER_3
+  from: BUS_433_A
+  to: PCS_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: PCS_FEEDER_4
+  from: BUS_433_A
+  to: PCS_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: PV_FEEDER
+  from: BUS_433_C
+  to: PV_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+- id: LOAD_FEEDER
+  from: BUS_433_B
+  to: LOAD_BUS
+  length_m: 20
+  cable:
+    r: 0.002
+    x: 0.001
+pcs:
+- id: PCS1
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_1
+  template: PCS1000
+  slave_id: 1
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+- id: PCS2
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_2
+  template: PCS1000
+  slave_id: 2
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+- id: PCS3
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_3
+  template: PCS1000
+  slave_id: 3
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 298.15
+- id: PCS4
+  bus: PCS_BUS
+  feeder: PCS_FEEDER_4
+  template: PCS1000
+  slave_id: 4
+  initial_condition:
+    SOC: 50.0
+    SOH: 100.0
+    Initial_Temperature_K: 329.15
+loads:
+- id: CHILLERS
+  bus: LOAD_BUS
+  default_kw: 0
+  pf: 1.0
+- id: COOLING_TOWER
+  bus: LOAD_BUS
+  default_kw: 0
+  pf: 1.0
+- id: EV_STACK
+  bus: LOAD_BUS
+  default_kw: 0
+  pf: 1.0
+- id: SERVICE_BLOCK
+  bus: LOAD_BUS
+  default_kw: 0
+  pf: 1.0
+pv:
+- id: PV1
+  bus: PV_BUS
+  feeder: PV_FEEDER
+  template: PV2000
+filters:
+- id: HF1
+  bus: BUS_433_A
+protection:
+- breaker: GRID_INCOMER
+  relay: ANSI50_51
+- breaker: T1_HV
+  relay: ANSI50_51
+- breaker: T2_HV
+  relay: ANSI50_51
+- breaker: T3_HV
+  relay: ANSI50_51
+- breaker: PCS_FEEDER
+  relay: ANSI50
+- breaker: PV_FEEDER
+  relay: ANSI50
+- breaker: CHILLER_FEEDER
+  relay: ANSI50_51
+- breaker: COOLING_TOWER_FEEDER
+  relay: ANSI50_51
+- breaker: EV_STACK_FEEDER
+  relay: ANSI50_51
+- breaker: SERVICE_BLOCK_FEEDER
+  relay: ANSI50_51
+templates:
+  PCS3500:
+    rated_power_kw: 3500
+    converter:
+      dc_voltage: 1100
+      filter:
+        r: 0.0002
+        l: 0.001
+        c: 1.0e-05
+    battery:
+      capacity_kwh: 5016
+      initial_soc_percent: 0
+  PCS1000:
+    rated_power_kw: 1000
+    converter:
+      dc_voltage: 1000
+      filter:
+        r: 0.0002
+        l: 0.001
+        c: 1.0e-05
+    battery:
+      capacity_kwh: 4000
+      initial_soc_percent: 0
+  PV2000:
+    rated_power_kw: 2000
+    converter:
+      dc_voltage: 1000
+      filter:
+        r: 0.0002
+        l: 0.001
+        c: 1.0e-05

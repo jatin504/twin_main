@@ -1,0 +1,290 @@
+# Python Real-World Problem Solving Challenge
+
+## Duration: 2 Days
+
+## Level: Intermediate to Advanced
+
+### Objective
+
+Build practical Python solutions by handling real-world scenarios involving data processing, automation, APIs, performance optimization, and system design concepts.
+
+Participants should focus on:
+
+* Writing clean and maintainable Python code
+* Applying appropriate data structures and algorithms
+* Handling errors and edge cases
+* Creating reusable functions/classes
+* Adding documentation and test cases
+
+---
+
+# Day 1 — Intermediate Level
+
+## Question 1: Customer Transaction Analysis System
+
+### Business Scenario
+
+A retail company stores customer transaction data daily. The business team wants insights about customer behavior, spending patterns, and sales performance.
+
+### Problem Statement
+
+Create a Python application that processes transaction data and generates analytical reports.
+
+### Input Example
+
+A CSV file containing:
+
+```
+transaction_id,customer_id,product,category,price,quantity,date
+1001,C101,Laptop,Electronics,80000,1,2026-08-01
+1002,C102,Mouse,Electronics,1500,2,2026-08-01
+1003,C101,Keyboard,Electronics,3000,1,2026-08-02
+```
+
+### Requirements
+
+Implement functionality to:
+
+1. Calculate total revenue
+2. Find the top 5 customers based on spending
+3. Identify the best-selling product categories
+4. Generate a daily sales summary
+5. Handle missing or invalid records
+
+### Expected Skills
+
+* File handling
+* CSV processing
+* Dictionaries and lists
+* Data aggregation
+* Exception handling
+
+### Bonus
+
+Export the final report into JSON format.
+
+---
+
+# Question 2: Log Monitoring and Error Detection System
+
+### Business Scenario
+
+A company runs multiple servers. Application logs are generated continuously, and the DevOps team needs a tool to identify failures quickly.
+
+### Problem Statement
+
+Build a Python log analyzer that detects important events from log files.
+
+### Input Example
+
+```
+2026-08-01 10:20:15 INFO User login successful
+2026-08-01 10:22:10 ERROR Database connection failed
+2026-08-01 10:25:30 WARNING High memory usage
+```
+
+### Requirements
+
+Create a system that:
+
+1. Reads application log files
+2. Counts INFO, WARNING, and ERROR events
+3. Finds the most common errors
+4. Generates an error summary report
+5. Sends an alert when errors exceed a defined limit
+
+### Expected Skills
+
+* File processing
+* Regular expressions
+* Data analysis
+* Modular programming
+
+### Bonus
+
+Create a command-line interface:
+
+```
+python log_analyzer.py --file app.log --threshold 10
+```
+
+---
+
+# Day 2 — Advanced Level
+
+## Question 3: API Data Processing and Caching System
+
+### Business Scenario
+
+A company consumes third-party APIs for weather, stock prices, or customer information. API calls are expensive and need optimization.
+
+### Problem Statement
+
+Build a Python service that fetches API data, processes it, and uses caching to reduce unnecessary requests.
+
+### Requirements
+
+Implement:
+
+1. API client module
+2. Data validation layer
+3. Response caching mechanism
+4. Retry handling for failed requests
+5. Logging of API performance
+
+Example workflow:
+
+```
+User Request
+      |
+      ↓
+Check Cache
+      |
+      ↓
+Call External API
+      |
+      ↓
+Validate Response
+      |
+      ↓
+Store Result
+      |
+      ↓
+Return Data
+```
+
+### Expected Skills
+
+* REST API handling
+* JSON processing
+* Decorators
+* Classes/OOP
+* Error handling
+* Performance optimization
+
+### Bonus
+
+Implement cache expiration:
+
+Example:
+
+```
+Cache lifetime = 10 minutes
+```
+
+---
+
+# Question 4: Employee Workflow Automation System
+
+### Business Scenario
+
+A company wants to automate employee task tracking. Employees submit tasks, managers review progress, and reports are generated automatically.
+
+### Problem Statement
+
+Design and develop a Python-based task management system.
+
+### Features Required
+
+Create classes for:
+
+## Employee
+
+Attributes:
+
+* Employee ID
+* Name
+* Department
+* Assigned Tasks
+
+## Task
+
+Attributes:
+
+* Task ID
+* Description
+* Priority
+* Status
+* Deadline
+
+---
+
+### Functional Requirements
+
+The system should support:
+
+1. Creating employees
+2. Assigning tasks
+3. Updating task status
+4. Searching tasks by priority/status
+5. Generating employee performance reports
+6. Saving and loading data
+
+Example report:
+
+```
+Employee: Rahul
+Department: Engineering
+
+Completed Tasks: 15
+Pending Tasks: 5
+Completion Rate: 75%
+```
+
+### Expected Skills
+
+* Object-oriented programming
+* Data persistence
+* File/database handling
+* Software design principles
+
+### Bonus
+
+Convert it into a REST API using Flask or FastAPI.
+
+---
+
+# Submission Guidelines
+
+Each solution should contain:
+
+## Project Structure
+
+```
+project_name/
+│
+├── src/
+│   ├── main.py
+│   ├── modules/
+│
+├── tests/
+│
+├── README.md
+│
+├── requirements.txt
+```
+
+---
+
+# Evaluation Criteria
+
+| Category                   | Weight |
+| -------------------------- | -----: |
+| Correct functionality      |    30% |
+| Code quality               |    20% |
+| Error handling             |    15% |
+| Performance considerations |    15% |
+| Documentation              |    10% |
+| Test coverage              |    10% |
+
+---
+
+# Expected Outcome
+
+After completing this challenge, participants should demonstrate the ability to:
+
+* Solve practical business problems using Python
+* Design scalable solutions
+* Work with real-world data
+* Build automation tools
+* Apply intermediate and advanced Python concepts

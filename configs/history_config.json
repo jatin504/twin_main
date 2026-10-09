@@ -1,0 +1,29 @@
+{
+  "history_window_seconds": 3600,
+  "save_interval_seconds": 5,
+  "export_file_path": "data/history.json",
+  "target_devices": [
+    "PPC"
+  ],
+  "enabled_tags": [
+    "Grid.Voltage",
+    "Grid.BUS_A_Voltage",
+    "Grid.BUS_B_Voltage",
+    "Grid.BUS_C_Voltage",
+    "Grid.Frequency",
+    "SOC",
+    "Battery.Power",
+    "Network.LoadVoltage",
+    "Network.LoadPower",
+    "Load.ChillersVoltage",
+    "Load.CoolingTowerVoltage",
+    "Load.EV_StackVoltage",
+    "Load.ServiceBlockVoltage",
+    "Load.ChillersPower",
+    "Load.CoolingTowerPower",
+    "Load.EV_StackPower",
+    "Load.ServiceBlockPower",
+    "PCS.ActivePowerOutput",
+    "PCS.AC_Voltage"
+  ]
+}

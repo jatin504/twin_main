@@ -1,0 +1,119 @@
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QWidget
+
+from common.enums import FaultCode
+
+
+class GridIcon(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        self.setFixedSize(140, 140)
+
+        self.grid_voltage = 0.0
+        self.import_power = 0.0
+        self.export_power = 0.0
+        self.frequency = 0.0
+        self.fault_code = "NONE"
+
+    def paintEvent(self, e):
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        pen = QPen(QColor("#9CA3AF"), 2)
+        p.setPen(pen)
+
+        # Tower
+        p.drawLine(25,20,10,110)
+        p.drawLine(25,20,40,110)
+
+        p.drawLine(8,32,42,32)
+        p.drawLine(5,52,45,52)
+        p.drawLine(2,72,48,72)
+        p.drawLine(0,92,50,92)
+
+        p.drawLine(25,20,25,110)
+
+        p.drawLine(25,32,10,45)
+        p.drawLine(25,32,40,45)
+
+        p.drawLine(25,52,10,65)
+        p.drawLine(25,52,40,65)
+
+        p.drawLine(25,72,10,85)
+        p.drawLine(25,72,40,85)
+
+        p.drawLine(10,110,40,110)
+
+        # Grid text
+        font = p.font()
+        font.setPointSize(7)
+        p.setFont(font)
+
+        p.setPen(QColor("#111827"))
+
+        # GRID title bold
+        font.setBold(True)
+        p.setFont(font)
+        p.drawText(70, 20, "GRID")
+
+        # Baaki text normal + small
+        font.setBold(False)
+        p.setFont(font)
+
+        p.drawText(55, 38, f"Grid: {self.grid_voltage:.2f} kV")
+        import_text = f"Import: {self.import_power:.2f} kW"
+        export_text = f"Export: {self.export_power:.2f} kW"
+
+        p.setPen(QColor("#111827"))
+        p.drawText(55, 54, import_text)
+        if self.import_power > 0:
+            arrow_x = 58 + p.fontMetrics().horizontalAdvance(import_text)
+            p.setPen(QColor("#00ff00"))
+            p.drawLine(arrow_x, 51, arrow_x + 7, 51)
+            p.drawLine(arrow_x + 3, 48, arrow_x + 7, 51)
+            p.drawLine(arrow_x + 3, 54, arrow_x + 7, 51)
+
+        export_text_x = 55
+        p.setPen(QColor("#111827"))
+        p.drawText(export_text_x, 70, export_text)
+        if self.export_power > 0:
+            arrow_x = (
+                export_text_x
+                + p.fontMetrics().horizontalAdvance(export_text)
+                + 3
+            )
+            p.setPen(QColor("#00ff00"))
+            p.drawLine(arrow_x + 7, 67, arrow_x, 67)
+            p.drawLine(arrow_x + 3, 64, arrow_x, 67)
+            p.drawLine(arrow_x + 3, 70, arrow_x, 67)
+
+        p.setPen(QColor("#111827"))
+        p.drawText(55, 86, f"Freq: {self.frequency:.2f} Hz")
+        p.drawText(55, 102, f"Fault: {self.fault_code}")
+
+    def update_data(
+        self,
+        grid_voltage,
+        import_power,
+        export_power,
+        frequency,
+        fault_code,
+    ):
+        self.grid_voltage = grid_voltage
+        self.import_power = import_power
+        self.export_power = export_power
+        self.frequency = frequency
+        if fault_code is None:
+            self.fault_code = "N/A"
+        else:
+            try:
+                self.fault_code = FaultCode(int(fault_code)).name.replace(
+                    "_", " "
+                ).title()
+            except (TypeError, ValueError):
+                self.fault_code = f"Unknown ({fault_code})"
+
+        self.update()
