@@ -232,7 +232,7 @@ class MainWindow(QMainWindow):
         )
         custom_layout.addSpacing(2)
         self.plantControlCards = PlantControlCards(
-            initial_values=self.get_yaml_transformer_impedance()
+            transformer_list=self.get_yaml_transformer_impedance()
         )
         custom_layout.addWidget(
             self.plantControlCards,
@@ -700,14 +700,16 @@ class MainWindow(QMainWindow):
                         break
 
             # ==================================================
-            # TRANSFORMER R / X
+            # TRANSFORMER R / X  (ALL TRANSFORMERS)
             # ==================================================
-            impedance = self.plantControlCards.get_impedance()
+            all_impedances = self.plantControlCards.get_all_impedances()
             for transformer in data.get(
                 "transformers",
                 []
             ):
-                if transformer.get("id") == "T1":
+                tx_id = transformer.get("id")
+                if tx_id in all_impedances:
+                    impedance = all_impedances[tx_id]
                     if "impedance" not in transformer:
                         transformer["impedance"] = {}
                     transformer["impedance"]["r_pu"] = float(
@@ -717,11 +719,10 @@ class MainWindow(QMainWindow):
                         impedance["x_pu"]
                     )
                     print(
-                        f"T1 | "
+                        f"{tx_id} | "
                         f"R={impedance['r_pu']} pu | "
                         f"X={impedance['x_pu']} pu"
                     )
-                    break
 
             # ==================================================
             # SAVE YAML
@@ -748,6 +749,11 @@ class MainWindow(QMainWindow):
             )
 
     def get_yaml_transformer_impedance(self):
+        """
+        Returns a list of all transformers with their
+        IDs and impedance values from the YAML file.
+        """
+        result = []
         try:
             with open(
                 self.plant_yaml_path,
@@ -758,25 +764,23 @@ class MainWindow(QMainWindow):
 
             transformers = data.get("transformers", [])
             for transformer in transformers:
-                if transformer.get("id") == "T1":
-                    impedance = transformer.get(
-                        "impedance",
-                        {}
-                    )
-                    return {
-                        "r_pu": impedance.get("r_pu", 0.01),
-                        "x_pu": impedance.get("x_pu", 0.04),
-                    }
+                tx_id = transformer.get("id", "T?")
+                impedance = transformer.get(
+                    "impedance",
+                    {}
+                )
+                result.append({
+                    "id": tx_id,
+                    "r_pu": impedance.get("r_pu", 0.01),
+                    "x_pu": impedance.get("x_pu", 0.04),
+                })
         except Exception as e:
             print(
                 "TRANSFORMER YAML LOAD ERROR:",
                 e
             )
 
-        return {
-            "r_pu": 0.01,
-            "x_pu": 0.04,
-        }
+        return result
 
     def get_yaml_soc_soh(self):
         result = {}
