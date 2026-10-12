@@ -264,6 +264,12 @@ class BessSummaryWidget(QFrame):
                         QColor("#25A244")
                     )
 
+                elif status == "charging":
+
+                    status_item.setForeground(
+                        QColor("#0284C7")
+                    )
+
                 elif status == "standby":
 
                     status_item.setForeground(

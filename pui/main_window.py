@@ -890,14 +890,14 @@ class MainWindow(QMainWindow):
             bess_rows = []
 
             for index, pcs in enumerate(pcs_data, start=1):
-                active_power = pcs.get("active_power", 0)
+                active_power = pcs.get("active_power", 0) or 0
                 soc = pcs.get("soc", 0)
                 stored_energy = pcs.get("stored_energy", 0)
 
                 if active_power < 0:
-                    status = "Discharging"
-                elif active_power > 0:
                     status = "Charging"
+                elif active_power > 0:
+                    status = "Discharging"
                 else:
                     status = "Standby"
 
