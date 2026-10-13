@@ -13,6 +13,7 @@ from typing import Any
 
 from state.variable import Variable
 from state.quality import Quality
+from common.constants import IST
 
 
 import os
@@ -179,7 +180,13 @@ class StateDatabase:
         Maintains a rolling 1-hour buffer (pruning data older than 1 hour).
         """
         with self._lock:
-            now = timestamp or datetime.utcnow()
+            if timestamp is not None:
+                if timestamp.tzinfo is None:
+                    now = timestamp.replace(tzinfo=IST)
+                else:
+                    now = timestamp.astimezone(IST)
+            else:
+                now = datetime.now(IST)
             now_ts = now.timestamp()
             now_iso = now.isoformat()
             cutoff = now_ts - self._history_window_sec
@@ -221,7 +228,7 @@ class StateDatabase:
         If name is None, returns a dictionary of all recorded variables and their samples.
         """
         with self._lock:
-            now_ts = datetime.utcnow().timestamp()
+            now_ts = datetime.now(IST).timestamp()
             cutoff = (now_ts - last_seconds) if last_seconds is not None else 0.0
 
             if name is not None:

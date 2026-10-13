@@ -5,6 +5,7 @@ import math
 import os
 import time
 from datetime import datetime
+from common.constants import IST
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QFont, QBrush, QLinearGradient
 from PySide6.QtWidgets import (
@@ -419,7 +420,7 @@ class TimeSeriesChartCanvas(QWidget):
 
             target_ts = anchor_ts + offset_sec
             try:
-                clock_str = datetime.fromtimestamp(target_ts).strftime("%H:%M")
+                clock_str = datetime.fromtimestamp(target_ts, tz=IST).strftime("%H:%M")
             except Exception:
                 clock_str = ""
 
@@ -534,7 +535,7 @@ class TimeSeriesChartCanvas(QWidget):
                 target_t = cutoff_ts + frac_x * self.window_seconds
 
                 try:
-                    clock_str = datetime.fromtimestamp(target_t).strftime("%H:%M:%S")
+                    clock_str = datetime.fromtimestamp(target_t, tz=IST).strftime("%H:%M:%S")
                 except Exception:
                     clock_str = "--:--:--"
 
@@ -567,7 +568,7 @@ class TimeSeriesChartCanvas(QWidget):
                 # Default LIVE pinned display (No hover needed!)
                 target_t = anchor_ts
                 try:
-                    clock_str = datetime.fromtimestamp(target_t).strftime("%H:%M:%S")
+                    clock_str = datetime.fromtimestamp(target_t, tz=IST).strftime("%H:%M:%S")
                 except Exception:
                     clock_str = "--:--:--"
 
@@ -1007,7 +1008,7 @@ class TimeSeriesWidget(QFrame):
         for i in range(count):
             t = (now_ts - 3600) + (i * 30.0)
             frac = i / count
-            iso_time = datetime.fromtimestamp(t).isoformat()
+            iso_time = datetime.fromtimestamp(t, tz=IST).isoformat()
 
             soc_val = round(50.0 + (1.68 * frac), 2)
             grid_v = round(33.0 + 0.15 * math.sin(i * 0.1), 2)
@@ -1083,6 +1084,20 @@ class TimeSeriesWidget(QFrame):
         now_ts = time.time()
         max_ts = max(all_ts) if all_ts else now_ts
         min_ts = min(all_ts) if all_ts else now_ts
+
+        # If data loaded from disk is older than the rolling window (e.g. from previous run),
+        # shift timestamps to align with current live IST time
+        if all_ts and (now_ts - max_ts > 3600.0):
+            time_shift = now_ts - max_ts
+            for pts in history_data.values():
+                for pt in pts:
+                    if "time" in pt:
+                        pt["time"] = float(pt["time"]) + time_shift
+                        pt["timestamp"] = datetime.fromtimestamp(pt["time"], tz=IST).isoformat()
+            all_ts = [float(pt["time"]) for pts in history_data.values() for pt in pts if pt.get("time") is not None]
+            max_ts = max(all_ts) if all_ts else now_ts
+            min_ts = min(all_ts) if all_ts else now_ts
+
         span = max_ts - min_ts
 
         if span < 3500.0:
@@ -1109,7 +1124,7 @@ class TimeSeriesWidget(QFrame):
                 step_idx = 0
                 while cur_t < min_ts:
                     progress = step_idx / total_steps
-                    iso_t = datetime.fromtimestamp(cur_t).isoformat()
+                    iso_t = datetime.fromtimestamp(cur_t, tz=IST).isoformat()
 
                     if key == "SOC":
                         base_v = (connect_val - 2.8) + (2.8 * progress)
