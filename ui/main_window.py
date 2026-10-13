@@ -647,9 +647,10 @@ class MainWindow(QMainWindow):
                 self.voltageProfile.set_simulator(self.simulator)
 
             if hasattr(self, "bessDispatchSchedule") and self.bessDispatchSchedule is not None:
-                self.bessDispatchSchedule.elapsed_seconds = 0
-                if hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
-                    self.bessDispatchSchedule.set_running_event(self.bessDispatchSchedule.schedule[0].get("event_id"))
+                if getattr(self.bessDispatchSchedule, "running_event_id", None) is None:
+                    self.bessDispatchSchedule.elapsed_seconds = 0
+                    if hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
+                        self.bessDispatchSchedule.set_running_event(self.bessDispatchSchedule.schedule[0].get("event_id"))
 
             self.simulation_button.setText(
                 "■ Stop Simulation"
@@ -951,21 +952,26 @@ class MainWindow(QMainWindow):
                     el_val = elapsed_txt.text().replace("Elapsed: ", "").strip()
                     self.header.update_elapsed_time(el_val)
 
-                # Sync Simulation Time with event timeline + elapsed seconds
-                base_dt = None
-                if hasattr(self.bessDispatchSchedule, "result_data"):
-                    recs = self.bessDispatchSchedule.result_data.get("schedule", [])
-                    if recs and isinstance(recs, list) and recs[0].get("time_stamp"):
-                        try:
-                            base_dt = datetime.fromisoformat(recs[0]["time_stamp"])
-                        except Exception:
-                            pass
-                if not base_dt:
-                    base_dt = datetime(2026, 9, 22, 0, 0, 0)
+                # Sync Simulation Time with active event timeline + elapsed seconds
+                if hasattr(self.bessDispatchSchedule, "get_current_sim_datetime"):
+                    sim_dt = self.bessDispatchSchedule.get_current_sim_datetime()
+                else:
+                    base_dt = None
+                    if hasattr(self.bessDispatchSchedule, "result_data"):
+                        recs = self.bessDispatchSchedule.result_data.get("schedule", [])
+                        if recs and isinstance(recs, list) and recs[0].get("time_stamp"):
+                            try:
+                                base_dt = datetime.fromisoformat(recs[0]["time_stamp"])
+                            except Exception:
+                                pass
+                    if not base_dt:
+                        base_dt = datetime(2026, 9, 22, 0, 0, 0)
 
-                el_secs = getattr(self.bessDispatchSchedule, "elapsed_seconds", 0)
-                sim_dt = base_dt + timedelta(seconds=el_secs)
-                self.header.update_simulation_time(sim_dt.strftime("%d-%b-%Y   %H:%M:%S"))
+                    el_secs = getattr(self.bessDispatchSchedule, "elapsed_seconds", 0)
+                    sim_dt = base_dt + timedelta(seconds=el_secs)
+
+                if sim_dt:
+                    self.header.update_simulation_time(sim_dt.strftime("%d-%b-%Y   %H:%M:%S"))
 
             
             # UPDATE BESS SUMMARY
