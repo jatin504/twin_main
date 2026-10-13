@@ -1,7 +1,9 @@
 {
+    "running_event_id": "SPE2609220000-01.00",
+    "running_timestamp": "2026-10-13 17:31:00",
     "schedule": [
         {
-            "time_stamp": "2026-09-22 00:00:00",
+            "time_stamp": "2026-10-13 00:00:00",
             "load_kw": 2190.67,
             "pv_kw": 0.0,
             "net_load_kw": 2190.67,
@@ -18,7 +20,7 @@
             "soc_percent": 51.68,
             "battery_energy_mwh": 13.927,
             "throughput_cycles": 0.0089,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -62,7 +64,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 00:15:00",
+            "time_stamp": "2026-10-13 00:15:00",
             "load_kw": 2166.0,
             "pv_kw": 0.0,
             "net_load_kw": 2166.0,
@@ -79,7 +81,7 @@
             "soc_percent": 53.38,
             "battery_energy_mwh": 14.386,
             "throughput_cycles": 0.018,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -123,7 +125,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 00:30:00",
+            "time_stamp": "2026-10-13 00:30:00",
             "load_kw": 2136.0,
             "pv_kw": 0.0,
             "net_load_kw": 2136.0,
@@ -140,7 +142,7 @@
             "soc_percent": 55.11,
             "battery_energy_mwh": 14.852,
             "throughput_cycles": 0.0272,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -184,7 +186,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 00:45:00",
+            "time_stamp": "2026-10-13 00:45:00",
             "load_kw": 2110.67,
             "pv_kw": 0.0,
             "net_load_kw": 2110.67,
@@ -201,7 +203,7 @@
             "soc_percent": 56.86,
             "battery_energy_mwh": 15.324,
             "throughput_cycles": 0.0365,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -245,7 +247,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 01:00:00",
+            "time_stamp": "2026-10-13 01:00:00",
             "load_kw": 2090.67,
             "pv_kw": 0.0,
             "net_load_kw": 2090.67,
@@ -262,7 +264,7 @@
             "soc_percent": 58.63,
             "battery_energy_mwh": 15.802,
             "throughput_cycles": 0.046,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -306,7 +308,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 01:15:00",
+            "time_stamp": "2026-10-13 01:15:00",
             "load_kw": 2070.67,
             "pv_kw": 0.0,
             "net_load_kw": 2070.67,
@@ -323,7 +325,7 @@
             "soc_percent": 60.42,
             "battery_energy_mwh": 16.284,
             "throughput_cycles": 0.0555,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -367,7 +369,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 01:30:00",
+            "time_stamp": "2026-10-13 01:30:00",
             "load_kw": 2055.33,
             "pv_kw": 0.0,
             "net_load_kw": 2055.33,
@@ -384,7 +386,7 @@
             "soc_percent": 62.23,
             "battery_energy_mwh": 16.77,
             "throughput_cycles": 0.0651,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -428,7 +430,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 01:45:00",
+            "time_stamp": "2026-10-13 01:45:00",
             "load_kw": 2050.0,
             "pv_kw": 0.0,
             "net_load_kw": 2050.0,
@@ -445,7 +447,7 @@
             "soc_percent": 64.04,
             "battery_energy_mwh": 17.258,
             "throughput_cycles": 0.0748,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -489,7 +491,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 02:00:00",
+            "time_stamp": "2026-10-13 02:00:00",
             "load_kw": 2059.33,
             "pv_kw": 0.0,
             "net_load_kw": 2059.33,
@@ -506,7 +508,7 @@
             "soc_percent": 65.84,
             "battery_energy_mwh": 17.743,
             "throughput_cycles": 0.0843,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -550,7 +552,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 02:15:00",
+            "time_stamp": "2026-10-13 02:15:00",
             "load_kw": 2084.0,
             "pv_kw": 0.0,
             "net_load_kw": 2084.0,
@@ -567,7 +569,7 @@
             "soc_percent": 67.61,
             "battery_energy_mwh": 18.222,
             "throughput_cycles": 0.0938,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -611,7 +613,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 02:30:00",
+            "time_stamp": "2026-10-13 02:30:00",
             "load_kw": 2109.33,
             "pv_kw": 0.0,
             "net_load_kw": 2109.33,
@@ -628,7 +630,7 @@
             "soc_percent": 69.37,
             "battery_energy_mwh": 18.694,
             "throughput_cycles": 0.1031,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -672,7 +674,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 02:45:00",
+            "time_stamp": "2026-10-13 02:45:00",
             "load_kw": 2134.0,
             "pv_kw": 0.0,
             "net_load_kw": 2134.0,
@@ -689,7 +691,7 @@
             "soc_percent": 71.1,
             "battery_energy_mwh": 19.161,
             "throughput_cycles": 0.1124,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -733,7 +735,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 03:00:00",
+            "time_stamp": "2026-10-13 03:00:00",
             "load_kw": 2164.0,
             "pv_kw": 0.0,
             "net_load_kw": 2164.0,
@@ -750,7 +752,7 @@
             "soc_percent": 72.8,
             "battery_energy_mwh": 19.62,
             "throughput_cycles": 0.1214,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -794,7 +796,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 03:15:00",
+            "time_stamp": "2026-10-13 03:15:00",
             "load_kw": 2189.33,
             "pv_kw": 0.0,
             "net_load_kw": 2189.33,
@@ -811,7 +813,7 @@
             "soc_percent": 74.48,
             "battery_energy_mwh": 20.072,
             "throughput_cycles": 0.1304,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -855,7 +857,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 03:30:00",
+            "time_stamp": "2026-10-13 03:30:00",
             "load_kw": 2223.33,
             "pv_kw": 0.0,
             "net_load_kw": 2223.33,
@@ -872,7 +874,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -916,7 +918,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 03:45:00",
+            "time_stamp": "2026-10-13 03:45:00",
             "load_kw": 2273.33,
             "pv_kw": 0.0,
             "net_load_kw": 2273.33,
@@ -933,7 +935,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -977,7 +979,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 04:00:00",
+            "time_stamp": "2026-10-13 04:00:00",
             "load_kw": 2323.33,
             "pv_kw": 0.0,
             "net_load_kw": 2323.33,
@@ -994,7 +996,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1038,7 +1040,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 04:15:00",
+            "time_stamp": "2026-10-13 04:15:00",
             "load_kw": 2373.33,
             "pv_kw": 0.0,
             "net_load_kw": 2373.33,
@@ -1055,7 +1057,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1099,7 +1101,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 04:30:00",
+            "time_stamp": "2026-10-13 04:30:00",
             "load_kw": 2423.33,
             "pv_kw": 0.0,
             "net_load_kw": 2423.33,
@@ -1116,7 +1118,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1160,7 +1162,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 04:45:00",
+            "time_stamp": "2026-10-13 04:45:00",
             "load_kw": 2473.33,
             "pv_kw": 0.0,
             "net_load_kw": 2473.33,
@@ -1177,7 +1179,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1221,7 +1223,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 05:00:00",
+            "time_stamp": "2026-10-13 05:00:00",
             "load_kw": 2523.33,
             "pv_kw": 0.0,
             "net_load_kw": 2523.33,
@@ -1238,7 +1240,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1282,7 +1284,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 05:15:00",
+            "time_stamp": "2026-10-13 05:15:00",
             "load_kw": 2573.33,
             "pv_kw": 0.0,
             "net_load_kw": 2573.33,
@@ -1299,7 +1301,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1343,7 +1345,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 05:30:00",
+            "time_stamp": "2026-10-13 05:30:00",
             "load_kw": 2623.33,
             "pv_kw": 0.0,
             "net_load_kw": 2623.33,
@@ -1360,7 +1362,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1404,7 +1406,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 05:45:00",
+            "time_stamp": "2026-10-13 05:45:00",
             "load_kw": 2673.33,
             "pv_kw": 46.67,
             "net_load_kw": 2626.67,
@@ -1421,7 +1423,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1465,7 +1467,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 06:00:00",
+            "time_stamp": "2026-10-13 06:00:00",
             "load_kw": 2723.33,
             "pv_kw": 137.33,
             "net_load_kw": 2586.0,
@@ -1482,7 +1484,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1526,7 +1528,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 06:15:00",
+            "time_stamp": "2026-10-13 06:15:00",
             "load_kw": 2773.33,
             "pv_kw": 226.67,
             "net_load_kw": 2546.67,
@@ -1543,7 +1545,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1587,7 +1589,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 06:30:00",
+            "time_stamp": "2026-10-13 06:30:00",
             "load_kw": 2823.33,
             "pv_kw": 336.0,
             "net_load_kw": 2487.33,
@@ -1604,7 +1606,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1648,7 +1650,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 06:45:00",
+            "time_stamp": "2026-10-13 06:45:00",
             "load_kw": 2873.33,
             "pv_kw": 470.0,
             "net_load_kw": 2403.33,
@@ -1665,7 +1667,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1709,7 +1711,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 07:00:00",
+            "time_stamp": "2026-10-13 07:00:00",
             "load_kw": 2923.33,
             "pv_kw": 620.0,
             "net_load_kw": 2303.33,
@@ -1726,7 +1728,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1770,7 +1772,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 07:15:00",
+            "time_stamp": "2026-10-13 07:15:00",
             "load_kw": 2973.33,
             "pv_kw": 770.0,
             "net_load_kw": 2203.33,
@@ -1787,7 +1789,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1831,7 +1833,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 07:30:00",
+            "time_stamp": "2026-10-13 07:30:00",
             "load_kw": 3023.33,
             "pv_kw": 920.0,
             "net_load_kw": 2103.33,
@@ -1848,7 +1850,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1892,7 +1894,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 07:45:00",
+            "time_stamp": "2026-10-13 07:45:00",
             "load_kw": 3073.33,
             "pv_kw": 1070.0,
             "net_load_kw": 2003.33,
@@ -1909,7 +1911,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -1953,7 +1955,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 08:00:00",
+            "time_stamp": "2026-10-13 08:00:00",
             "load_kw": 3123.33,
             "pv_kw": 1220.0,
             "net_load_kw": 1903.33,
@@ -1970,7 +1972,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2014,7 +2016,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 08:15:00",
+            "time_stamp": "2026-10-13 08:15:00",
             "load_kw": 3173.33,
             "pv_kw": 1370.0,
             "net_load_kw": 1803.33,
@@ -2031,7 +2033,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2075,7 +2077,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 08:30:00",
+            "time_stamp": "2026-10-13 08:30:00",
             "load_kw": 3223.33,
             "pv_kw": 1520.0,
             "net_load_kw": 1703.33,
@@ -2092,7 +2094,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2136,7 +2138,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 08:45:00",
+            "time_stamp": "2026-10-13 08:45:00",
             "load_kw": 3273.33,
             "pv_kw": 1670.0,
             "net_load_kw": 1603.33,
@@ -2153,7 +2155,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2197,7 +2199,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 09:00:00",
+            "time_stamp": "2026-10-13 09:00:00",
             "load_kw": 3323.33,
             "pv_kw": 1820.0,
             "net_load_kw": 1503.33,
@@ -2214,7 +2216,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2258,7 +2260,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 09:15:00",
+            "time_stamp": "2026-10-13 09:15:00",
             "load_kw": 3373.33,
             "pv_kw": 1970.0,
             "net_load_kw": 1403.33,
@@ -2275,7 +2277,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2319,7 +2321,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 09:30:00",
+            "time_stamp": "2026-10-13 09:30:00",
             "load_kw": 3423.33,
             "pv_kw": 2120.0,
             "net_load_kw": 1303.33,
@@ -2336,7 +2338,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2380,7 +2382,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 09:45:00",
+            "time_stamp": "2026-10-13 09:45:00",
             "load_kw": 3473.33,
             "pv_kw": 2246.67,
             "net_load_kw": 1226.67,
@@ -2397,7 +2399,7 @@
             "soc_percent": 74.58,
             "battery_energy_mwh": 20.099,
             "throughput_cycles": 0.1309,
-            "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.34,
             "violation_energy_mwh": 0.674,
@@ -2441,7 +2443,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 10:00:00",
+            "time_stamp": "2026-10-13 10:00:00",
             "load_kw": 3509.33,
             "pv_kw": 2337.33,
             "net_load_kw": 1172.0,
@@ -2458,7 +2460,7 @@
             "soc_percent": 73.49,
             "battery_energy_mwh": 19.806,
             "throughput_cycles": 0.1367,
-            "upcoming_peak_timestamp": "2026-09-22 10:15:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:15:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 11.047,
             "violation_energy_mwh": 0.674,
@@ -2502,7 +2504,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 10:15:00",
+            "time_stamp": "2026-10-13 10:15:00",
             "load_kw": 3534.0,
             "pv_kw": 2412.67,
             "net_load_kw": 1121.33,
@@ -2519,7 +2521,7 @@
             "soc_percent": 72.45,
             "battery_energy_mwh": 19.526,
             "throughput_cycles": 0.1422,
-            "upcoming_peak_timestamp": "2026-09-22 10:30:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:30:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 10.767,
             "violation_energy_mwh": 0.674,
@@ -2563,7 +2565,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 10:30:00",
+            "time_stamp": "2026-10-13 10:30:00",
             "load_kw": 3564.0,
             "pv_kw": 2473.33,
             "net_load_kw": 1090.67,
@@ -2580,7 +2582,7 @@
             "soc_percent": 71.44,
             "battery_energy_mwh": 19.253,
             "throughput_cycles": 0.1476,
-            "upcoming_peak_timestamp": "2026-09-22 10:45:00",
+            "upcoming_peak_timestamp": "2026-10-13 10:45:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 10.494,
             "violation_energy_mwh": 0.674,
@@ -2624,7 +2626,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 10:45:00",
+            "time_stamp": "2026-10-13 10:45:00",
             "load_kw": 3589.33,
             "pv_kw": 2523.33,
             "net_load_kw": 1066.0,
@@ -2641,7 +2643,7 @@
             "soc_percent": 70.45,
             "battery_energy_mwh": 18.987,
             "throughput_cycles": 0.1529,
-            "upcoming_peak_timestamp": "2026-09-22 11:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 11:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 10.228,
             "violation_energy_mwh": 0.674,
@@ -2685,7 +2687,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 11:00:00",
+            "time_stamp": "2026-10-13 11:00:00",
             "load_kw": 3576.67,
             "pv_kw": 2573.33,
             "net_load_kw": 1003.33,
@@ -2702,7 +2704,7 @@
             "soc_percent": 69.52,
             "battery_energy_mwh": 18.736,
             "throughput_cycles": 0.1579,
-            "upcoming_peak_timestamp": "2026-09-22 11:15:00",
+            "upcoming_peak_timestamp": "2026-10-13 11:15:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 9.977,
             "violation_energy_mwh": 0.674,
@@ -2746,7 +2748,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 11:15:00",
+            "time_stamp": "2026-10-13 11:15:00",
             "load_kw": 3526.67,
             "pv_kw": 2623.33,
             "net_load_kw": 903.33,
@@ -2763,7 +2765,7 @@
             "soc_percent": 68.68,
             "battery_energy_mwh": 18.51,
             "throughput_cycles": 0.1623,
-            "upcoming_peak_timestamp": "2026-09-22 11:30:00",
+            "upcoming_peak_timestamp": "2026-10-13 11:30:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 9.751,
             "violation_energy_mwh": 0.674,
@@ -2807,7 +2809,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 11:30:00",
+            "time_stamp": "2026-10-13 11:30:00",
             "load_kw": 3490.67,
             "pv_kw": 2673.33,
             "net_load_kw": 817.33,
@@ -2824,7 +2826,7 @@
             "soc_percent": 67.93,
             "battery_energy_mwh": 18.306,
             "throughput_cycles": 0.1664,
-            "upcoming_peak_timestamp": "2026-09-22 11:45:00",
+            "upcoming_peak_timestamp": "2026-10-13 11:45:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 9.547,
             "violation_energy_mwh": 0.674,
@@ -2868,7 +2870,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 11:45:00",
+            "time_stamp": "2026-10-13 11:45:00",
             "load_kw": 3466.0,
             "pv_kw": 2723.33,
             "net_load_kw": 742.67,
@@ -2885,7 +2887,7 @@
             "soc_percent": 67.24,
             "battery_energy_mwh": 18.12,
             "throughput_cycles": 0.17,
-            "upcoming_peak_timestamp": "2026-09-22 12:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 12:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 9.361,
             "violation_energy_mwh": 0.674,
@@ -2929,7 +2931,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 12:00:00",
+            "time_stamp": "2026-10-13 12:00:00",
             "load_kw": 3473.33,
             "pv_kw": 2764.0,
             "net_load_kw": 709.33,
@@ -2946,7 +2948,7 @@
             "soc_percent": 66.58,
             "battery_energy_mwh": 17.943,
             "throughput_cycles": 0.1735,
-            "upcoming_peak_timestamp": "2026-09-22 12:15:00",
+            "upcoming_peak_timestamp": "2026-10-13 12:15:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 9.184,
             "violation_energy_mwh": 0.674,
@@ -2990,7 +2992,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 12:15:00",
+            "time_stamp": "2026-10-13 12:15:00",
             "load_kw": 3523.33,
             "pv_kw": 2789.33,
             "net_load_kw": 734.0,
@@ -3007,7 +3009,7 @@
             "soc_percent": 65.9,
             "battery_energy_mwh": 17.759,
             "throughput_cycles": 0.1772,
-            "upcoming_peak_timestamp": "2026-09-22 12:30:00",
+            "upcoming_peak_timestamp": "2026-10-13 12:30:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 9.0,
             "violation_energy_mwh": 0.674,
@@ -3051,7 +3053,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 12:30:00",
+            "time_stamp": "2026-10-13 12:30:00",
             "load_kw": 3573.33,
             "pv_kw": 2790.67,
             "net_load_kw": 782.67,
@@ -3068,7 +3070,7 @@
             "soc_percent": 65.17,
             "battery_energy_mwh": 17.564,
             "throughput_cycles": 0.181,
-            "upcoming_peak_timestamp": "2026-09-22 12:45:00",
+            "upcoming_peak_timestamp": "2026-10-13 12:45:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.805,
             "violation_energy_mwh": 0.674,
@@ -3112,7 +3114,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 12:45:00",
+            "time_stamp": "2026-10-13 12:45:00",
             "load_kw": 3623.33,
             "pv_kw": 2766.0,
             "net_load_kw": 857.33,
@@ -3129,7 +3131,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3173,7 +3175,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 13:00:00",
+            "time_stamp": "2026-10-13 13:00:00",
             "load_kw": 3673.33,
             "pv_kw": 2726.67,
             "net_load_kw": 946.67,
@@ -3190,7 +3192,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3234,7 +3236,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 13:15:00",
+            "time_stamp": "2026-10-13 13:15:00",
             "load_kw": 3723.33,
             "pv_kw": 2676.67,
             "net_load_kw": 1046.67,
@@ -3251,7 +3253,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3295,7 +3297,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 13:30:00",
+            "time_stamp": "2026-10-13 13:30:00",
             "load_kw": 3773.33,
             "pv_kw": 2603.33,
             "net_load_kw": 1170.0,
@@ -3312,7 +3314,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3356,7 +3358,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 13:45:00",
+            "time_stamp": "2026-10-13 13:45:00",
             "load_kw": 3809.33,
             "pv_kw": 2503.33,
             "net_load_kw": 1306.0,
@@ -3373,7 +3375,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3417,7 +3419,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 14:00:00",
+            "time_stamp": "2026-10-13 14:00:00",
             "load_kw": 3834.0,
             "pv_kw": 2403.33,
             "net_load_kw": 1430.67,
@@ -3434,7 +3436,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3478,7 +3480,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 14:15:00",
+            "time_stamp": "2026-10-13 14:15:00",
             "load_kw": 3864.0,
             "pv_kw": 2303.33,
             "net_load_kw": 1560.67,
@@ -3495,7 +3497,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3539,7 +3541,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 14:30:00",
+            "time_stamp": "2026-10-13 14:30:00",
             "load_kw": 3889.33,
             "pv_kw": 2203.33,
             "net_load_kw": 1686.0,
@@ -3556,7 +3558,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3600,7 +3602,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 14:45:00",
+            "time_stamp": "2026-10-13 14:45:00",
             "load_kw": 3909.33,
             "pv_kw": 2080.0,
             "net_load_kw": 1829.33,
@@ -3617,7 +3619,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3661,7 +3663,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 15:00:00",
+            "time_stamp": "2026-10-13 15:00:00",
             "load_kw": 3934.0,
             "pv_kw": 1930.0,
             "net_load_kw": 2004.0,
@@ -3678,7 +3680,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3722,7 +3724,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 15:15:00",
+            "time_stamp": "2026-10-13 15:15:00",
             "load_kw": 3964.0,
             "pv_kw": 1780.0,
             "net_load_kw": 2184.0,
@@ -3739,7 +3741,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3783,7 +3785,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 15:30:00",
+            "time_stamp": "2026-10-13 15:30:00",
             "load_kw": 3989.33,
             "pv_kw": 1630.0,
             "net_load_kw": 2359.33,
@@ -3800,7 +3802,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3844,7 +3846,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 15:45:00",
+            "time_stamp": "2026-10-13 15:45:00",
             "load_kw": 4009.33,
             "pv_kw": 1480.0,
             "net_load_kw": 2529.33,
@@ -3861,7 +3863,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3905,7 +3907,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 16:00:00",
+            "time_stamp": "2026-10-13 16:00:00",
             "load_kw": 4034.0,
             "pv_kw": 1330.0,
             "net_load_kw": 2704.0,
@@ -3922,7 +3924,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -3966,7 +3968,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 16:15:00",
+            "time_stamp": "2026-10-13 16:15:00",
             "load_kw": 4064.0,
             "pv_kw": 1180.0,
             "net_load_kw": 2884.0,
@@ -3983,7 +3985,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -4027,7 +4029,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 16:30:00",
+            "time_stamp": "2026-10-13 16:30:00",
             "load_kw": 4089.33,
             "pv_kw": 1030.0,
             "net_load_kw": 3059.33,
@@ -4044,7 +4046,7 @@
             "soc_percent": 64.38,
             "battery_energy_mwh": 17.349,
             "throughput_cycles": 0.1853,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.674,
@@ -4088,7 +4090,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 16:45:00",
+            "time_stamp": "2026-10-13 16:45:00",
             "load_kw": 5803.33,
             "pv_kw": 880.0,
             "net_load_kw": 4923.33,
@@ -4105,7 +4107,7 @@
             "soc_percent": 63.52,
             "battery_energy_mwh": 17.119,
             "throughput_cycles": 0.1898,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.443,
@@ -4149,7 +4151,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 17:00:00",
+            "time_stamp": "2026-10-13 17:00:00",
             "load_kw": 6070.0,
             "pv_kw": 730.0,
             "net_load_kw": 5340.0,
@@ -4166,7 +4168,7 @@
             "soc_percent": 62.28,
             "battery_energy_mwh": 16.784,
             "throughput_cycles": 0.1964,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.108,
@@ -4210,7 +4212,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 17:15:00",
+            "time_stamp": "2026-10-13 17:15:00",
             "load_kw": 4164.0,
             "pv_kw": 580.0,
             "net_load_kw": 3584.0,
@@ -4227,7 +4229,7 @@
             "soc_percent": 62.28,
             "battery_energy_mwh": 16.784,
             "throughput_cycles": 0.1964,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.108,
@@ -4271,7 +4273,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 17:30:00",
+            "time_stamp": "2026-10-13 17:30:00",
             "load_kw": 4189.33,
             "pv_kw": 444.0,
             "net_load_kw": 3745.33,
@@ -4288,7 +4290,7 @@
             "soc_percent": 62.28,
             "battery_energy_mwh": 16.784,
             "throughput_cycles": 0.1964,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.108,
@@ -4332,7 +4334,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 17:45:00",
+            "time_stamp": "2026-10-13 17:45:00",
             "load_kw": 4223.33,
             "pv_kw": 324.0,
             "net_load_kw": 3899.33,
@@ -4349,7 +4351,7 @@
             "soc_percent": 62.28,
             "battery_energy_mwh": 16.784,
             "throughput_cycles": 0.1964,
-            "upcoming_peak_timestamp": "2026-09-22 18:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 8.59,
             "violation_energy_mwh": 0.108,
@@ -4393,7 +4395,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 18:00:00",
+            "time_stamp": "2026-10-13 18:00:00",
             "load_kw": 4273.33,
             "pv_kw": 213.33,
             "net_load_kw": 4060.0,
@@ -4410,7 +4412,7 @@
             "soc_percent": 58.51,
             "battery_energy_mwh": 15.769,
             "throughput_cycles": 0.2165,
-            "upcoming_peak_timestamp": "2026-09-22 18:15:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:15:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 7.575,
             "violation_energy_mwh": 0.108,
@@ -4454,7 +4456,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 18:15:00",
+            "time_stamp": "2026-10-13 18:15:00",
             "load_kw": 4323.33,
             "pv_kw": 122.67,
             "net_load_kw": 4200.67,
@@ -4471,7 +4473,7 @@
             "soc_percent": 54.61,
             "battery_energy_mwh": 14.718,
             "throughput_cycles": 0.2373,
-            "upcoming_peak_timestamp": "2026-09-22 18:30:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:30:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 6.525,
             "violation_energy_mwh": 0.108,
@@ -4515,7 +4517,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 18:30:00",
+            "time_stamp": "2026-10-13 18:30:00",
             "load_kw": 4373.33,
             "pv_kw": 56.67,
             "net_load_kw": 4316.67,
@@ -4532,7 +4534,7 @@
             "soc_percent": 50.61,
             "battery_energy_mwh": 13.639,
             "throughput_cycles": 0.2586,
-            "upcoming_peak_timestamp": "2026-09-22 18:45:00",
+            "upcoming_peak_timestamp": "2026-10-13 18:45:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 5.446,
             "violation_energy_mwh": 0.108,
@@ -4576,7 +4578,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 18:45:00",
+            "time_stamp": "2026-10-13 18:45:00",
             "load_kw": 4409.33,
             "pv_kw": 16.0,
             "net_load_kw": 4393.33,
@@ -4593,7 +4595,7 @@
             "soc_percent": 46.53,
             "battery_energy_mwh": 12.541,
             "throughput_cycles": 0.2803,
-            "upcoming_peak_timestamp": "2026-09-22 19:00:00",
+            "upcoming_peak_timestamp": "2026-10-13 19:00:00",
             "upcoming_peak_required_kw": 4410.67,
             "active_peak_energy_mwh": 4.348,
             "violation_energy_mwh": 0.108,
@@ -4637,7 +4639,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 19:00:00",
+            "time_stamp": "2026-10-13 19:00:00",
             "load_kw": 4410.67,
             "pv_kw": 0.0,
             "net_load_kw": 4410.67,
@@ -4654,7 +4656,7 @@
             "soc_percent": 42.44,
             "battery_energy_mwh": 11.438,
             "throughput_cycles": 0.3021,
-            "upcoming_peak_timestamp": "2026-09-22 19:15:00",
+            "upcoming_peak_timestamp": "2026-10-13 19:15:00",
             "upcoming_peak_required_kw": 4376.67,
             "active_peak_energy_mwh": 3.245,
             "violation_energy_mwh": 0.108,
@@ -4698,7 +4700,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 19:15:00",
+            "time_stamp": "2026-10-13 19:15:00",
             "load_kw": 4376.67,
             "pv_kw": 0.0,
             "net_load_kw": 4376.67,
@@ -4715,7 +4717,7 @@
             "soc_percent": 38.38,
             "battery_energy_mwh": 10.344,
             "throughput_cycles": 0.3237,
-            "upcoming_peak_timestamp": "2026-09-22 19:30:00",
+            "upcoming_peak_timestamp": "2026-10-13 19:30:00",
             "upcoming_peak_required_kw": 4326.67,
             "active_peak_energy_mwh": 2.151,
             "violation_energy_mwh": 0.108,
@@ -4759,7 +4761,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 19:30:00",
+            "time_stamp": "2026-10-13 19:30:00",
             "load_kw": 4326.67,
             "pv_kw": 0.0,
             "net_load_kw": 4326.67,
@@ -4776,7 +4778,7 @@
             "soc_percent": 34.37,
             "battery_energy_mwh": 9.263,
             "throughput_cycles": 0.3451,
-            "upcoming_peak_timestamp": "2026-09-22 19:45:00",
+            "upcoming_peak_timestamp": "2026-10-13 19:45:00",
             "upcoming_peak_required_kw": 4276.67,
             "active_peak_energy_mwh": 1.069,
             "violation_energy_mwh": 0.108,
@@ -4820,7 +4822,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 19:45:00",
+            "time_stamp": "2026-10-13 19:45:00",
             "load_kw": 4276.67,
             "pv_kw": 0.0,
             "net_load_kw": 4276.67,
@@ -4881,7 +4883,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 20:00:00",
+            "time_stamp": "2026-10-13 20:00:00",
             "load_kw": 4226.67,
             "pv_kw": 0.0,
             "net_load_kw": 4226.67,
@@ -4942,7 +4944,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 20:15:00",
+            "time_stamp": "2026-10-13 20:15:00",
             "load_kw": 4153.33,
             "pv_kw": 0.0,
             "net_load_kw": 4153.33,
@@ -5003,7 +5005,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 20:30:00",
+            "time_stamp": "2026-10-13 20:30:00",
             "load_kw": 4053.33,
             "pv_kw": 0.0,
             "net_load_kw": 4053.33,
@@ -5064,7 +5066,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 20:45:00",
+            "time_stamp": "2026-10-13 20:45:00",
             "load_kw": 3953.33,
             "pv_kw": 0.0,
             "net_load_kw": 3953.33,
@@ -5125,7 +5127,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 21:00:00",
+            "time_stamp": "2026-10-13 21:00:00",
             "load_kw": 3853.33,
             "pv_kw": 0.0,
             "net_load_kw": 3853.33,
@@ -5186,7 +5188,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 21:15:00",
+            "time_stamp": "2026-10-13 21:15:00",
             "load_kw": 3753.33,
             "pv_kw": 0.0,
             "net_load_kw": 3753.33,
@@ -5247,7 +5249,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 21:30:00",
+            "time_stamp": "2026-10-13 21:30:00",
             "load_kw": 3653.33,
             "pv_kw": 0.0,
             "net_load_kw": 3653.33,
@@ -5308,7 +5310,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 21:45:00",
+            "time_stamp": "2026-10-13 21:45:00",
             "load_kw": 3553.33,
             "pv_kw": 0.0,
             "net_load_kw": 3553.33,
@@ -5369,7 +5371,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 22:00:00",
+            "time_stamp": "2026-10-13 22:00:00",
             "load_kw": 3453.33,
             "pv_kw": 0.0,
             "net_load_kw": 3453.33,
@@ -5430,7 +5432,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 22:15:00",
+            "time_stamp": "2026-10-13 22:15:00",
             "load_kw": 3353.33,
             "pv_kw": 0.0,
             "net_load_kw": 3353.33,
@@ -5491,7 +5493,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 22:30:00",
+            "time_stamp": "2026-10-13 22:30:00",
             "load_kw": 3253.33,
             "pv_kw": 0.0,
             "net_load_kw": 3253.33,
@@ -5552,7 +5554,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 22:45:00",
+            "time_stamp": "2026-10-13 22:45:00",
             "load_kw": 3130.0,
             "pv_kw": 0.0,
             "net_load_kw": 3130.0,
@@ -5613,7 +5615,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 23:00:00",
+            "time_stamp": "2026-10-13 23:00:00",
             "load_kw": 2980.0,
             "pv_kw": 0.0,
             "net_load_kw": 2980.0,
@@ -5674,7 +5676,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 23:15:00",
+            "time_stamp": "2026-10-13 23:15:00",
             "load_kw": 2830.0,
             "pv_kw": 0.0,
             "net_load_kw": 2830.0,
@@ -5735,7 +5737,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 23:30:00",
+            "time_stamp": "2026-10-13 23:30:00",
             "load_kw": 2680.0,
             "pv_kw": 0.0,
             "net_load_kw": 2680.0,
@@ -5796,7 +5798,7 @@
             ]
         },
         {
-            "time_stamp": "2026-09-22 23:45:00",
+            "time_stamp": "2026-10-13 23:45:00",
             "load_kw": 2600.0,
             "pv_kw": 0.0,
             "net_load_kw": 2600.0,
@@ -5833,7 +5835,7 @@
         {
             "event_number": 1,
             "bess_event_decision": {
-                "time_stamp": "2026-09-22 00:00:00",
+                "time_stamp": "2026-10-13 00:00:00",
                 "load_kw": 2190.67,
                 "pv_kw": 0.0,
                 "net_load_kw": 2190.67,
@@ -5850,7 +5852,7 @@
                 "soc_percent": 51.68,
                 "battery_energy_mwh": 13.927,
                 "throughput_cycles": 0.0089,
-                "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+                "upcoming_peak_timestamp": "2026-10-13 10:00:00",
                 "upcoming_peak_required_kw": 4410.67,
                 "active_peak_energy_mwh": 11.34,
                 "violation_energy_mwh": 0.674,
@@ -9270,7 +9272,7 @@
         {
             "event_number": 2,
             "bess_event_decision": {
-                "time_stamp": "2026-09-22 00:15:00",
+                "time_stamp": "2026-10-13 00:15:00",
                 "load_kw": 2166.0,
                 "pv_kw": 0.0,
                 "net_load_kw": 2166.0,
@@ -9287,7 +9289,7 @@
                 "soc_percent": 53.38,
                 "battery_energy_mwh": 14.386,
                 "throughput_cycles": 0.018,
-                "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+                "upcoming_peak_timestamp": "2026-10-13 10:00:00",
                 "upcoming_peak_required_kw": 4410.67,
                 "active_peak_energy_mwh": 11.34,
                 "violation_energy_mwh": 0.674,
@@ -12805,7 +12807,7 @@
         {
             "event_number": 3,
             "bess_event_decision": {
-                "time_stamp": "2026-09-22 00:30:00",
+                "time_stamp": "2026-10-13 00:30:00",
                 "load_kw": 2136.0,
                 "pv_kw": 0.0,
                 "net_load_kw": 2136.0,
@@ -12822,7 +12824,7 @@
                 "soc_percent": 55.11,
                 "battery_energy_mwh": 14.852,
                 "throughput_cycles": 0.0272,
-                "upcoming_peak_timestamp": "2026-09-22 10:00:00",
+                "upcoming_peak_timestamp": "2026-10-13 10:00:00",
                 "upcoming_peak_required_kw": 4410.67,
                 "active_peak_energy_mwh": 11.34,
                 "violation_energy_mwh": 0.674,

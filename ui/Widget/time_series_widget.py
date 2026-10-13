@@ -136,6 +136,8 @@ class TimeSeriesChartCanvas(QWidget):
 
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        if self.hover_pos and abs(self.hover_pos.x() - pos.x()) < 2:
+            return
         self.hover_pos = pos
         self.hover_active = True
         self.update()
@@ -274,48 +276,47 @@ class TimeSeriesChartCanvas(QWidget):
                     except (ValueError, TypeError):
                         pass
 
-        # Power Axis Range (Left)
+        # Power Axis Range (Left) - stabilized with step rounding to eliminate vertical jitter
         if power_vals:
             power_min = min(power_vals)
             power_max = max(power_vals)
             if power_min == power_max:
                 power_min, power_max = (power_min * 0.9, power_min * 1.1)
             else:
-                p_pad = (power_max - power_min) * 0.12
-                power_min = max(0.0, power_min - p_pad) if power_min >= 0 else (power_min - p_pad)
+                p_pad = max(100.0, (power_max - power_min) * 0.12)
+                power_min = power_min - p_pad
                 power_max = power_max + p_pad
+            power_min = math.floor(power_min / 250.0) * 250.0
+            power_max = math.ceil(power_max / 250.0) * 250.0
         else:
             power_min, power_max = (0.0, 5000.0)
         power_range = max(1e-6, power_max - power_min)
 
-        # SOC Axis Range (Right)
+        # SOC Axis Range (Right) - stabilized to 10% steps
         if soc_vals:
-            soc_min = max(0.0, min(soc_vals) - 5.0)
-            soc_max = min(100.0, max(soc_vals) + 5.0)
+            soc_min = max(0.0, math.floor((min(soc_vals) - 5.0) / 10.0) * 10.0)
+            soc_max = min(100.0, math.ceil((max(soc_vals) + 5.0) / 10.0) * 10.0)
             if soc_min >= soc_max:
                 soc_min, soc_max = (0.0, 100.0)
         else:
             soc_min, soc_max = (0.0, 100.0)
         soc_range = max(1e-6, soc_max - soc_min)
 
-        # Voltage Axis Range
+        # Voltage Axis Range - stabilized to 5V steps
         if volt_vals:
-            volt_min = min(volt_vals)
-            volt_max = max(volt_vals)
-            if volt_min == volt_max:
-                volt_min, volt_max = (volt_min * 0.95, volt_min * 1.05)
-            else:
-                v_pad = (volt_max - volt_min) * 0.15
-                volt_min -= v_pad
-                volt_max += v_pad
+            v_low = min(volt_vals)
+            v_high = max(volt_vals)
+            v_pad = max(5.0, (v_high - v_low) * 0.15) if v_low != v_high else 10.0
+            volt_min = math.floor((v_low - v_pad) / 5.0) * 5.0
+            volt_max = math.ceil((v_high + v_pad) / 5.0) * 5.0
         else:
             volt_min, volt_max = (380.0, 440.0)
         volt_range = max(1e-6, volt_max - volt_min)
 
-        # Frequency Axis Range
+        # Frequency Axis Range - stabilized to 0.1 Hz steps
         if freq_vals:
-            freq_min = min(freq_vals) - 0.2
-            freq_max = max(freq_vals) + 0.2
+            freq_min = math.floor((min(freq_vals) - 0.2) * 10.0) / 10.0
+            freq_max = math.ceil((max(freq_vals) + 0.2) * 10.0) / 10.0
         else:
             freq_min, freq_max = (49.0, 51.0)
         freq_range = max(1e-6, freq_max - freq_min)
@@ -339,6 +340,9 @@ class TimeSeriesChartCanvas(QWidget):
                     max_val += padding
             else:
                 min_val, max_val = single_cfg.get("nominal", (0.0, 100.0))
+            step = 10.0 if (max_val - min_val) > 50 else 1.0
+            min_val = math.floor(min_val / step) * step
+            max_val = math.ceil(max_val / step) * step
             val_range = max(1e-6, max_val - min_val)
             unit = s_unit
 
@@ -511,8 +515,7 @@ class TimeSeriesChartCanvas(QWidget):
 
             if len(curve_points) >= 2:
                 p.setPen(QPen(line_color, 2.0 if is_compact else 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                for i in range(len(curve_points) - 1):
-                    p.drawLine(curve_points[i], curve_points[i + 1])
+                p.drawPolyline(curve_points)
 
                 last_pt = curve_points[-1]
                 p.setBrush(QBrush(line_color))
@@ -941,49 +944,37 @@ class TimeSeriesWidget(QFrame):
         self.canvas.set_selected_metric(metric_key)
 
     def _toggle_fullscreen(self):
-        if self.fullscreen_dialog is not None:
-            self.fullscreen_dialog.close()
+        # Open dedicated full-screen dialog without reparenting (avoids black screen & keeps tabs intact)
+        if hasattr(self, "fullscreen_dialog") and self.fullscreen_dialog is not None:
+            try:
+                self.fullscreen_dialog.close()
+            except Exception:
+                pass
+            self.fullscreen_dialog = None
             return
 
-        parent = self.parentWidget()
-        if parent is None:
-            return
-
-        self._fullscreen_parent = parent
-        self._fullscreen_geometry = self.geometry()
-
-        dialog = QDialog(parent.window())
-        dialog.setWindowTitle("1-Hour Rolling Time Series Trends")
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.addWidget(self)
-        dialog.finished.connect(
-            lambda _result, active_dialog=dialog: self._restore_from_fullscreen(active_dialog)
+        current_metric = self.canvas.selected_metric
+        dialog = TimeSeriesFullscreenDialog(
+            simulator=self.simulator,
+            selected_metric=current_metric,
+            parent=self.window(),
         )
-
         self.fullscreen_dialog = dialog
-        self.fullscreen_button.setText("✕")
-        self.fullscreen_button.setToolTip("Exit fullscreen")
+
+        def _on_closed():
+            self.fullscreen_dialog = None
+            # Sync chosen metric back to compact view
+            if hasattr(dialog, "chart_widget"):
+                metric = dialog.chart_widget.canvas.selected_metric
+                self.on_metric_selected(metric)
+                if hasattr(self, "metric_combo"):
+                    for i in range(self.metric_combo.count()):
+                        if self.metric_combo.itemData(i) == metric:
+                            self.metric_combo.setCurrentIndex(i)
+                            break
+
+        dialog.destroyed.connect(_on_closed)
         dialog.showFullScreen()
-
-    def _restore_from_fullscreen(self, dialog):
-        if dialog is not getattr(self, "fullscreen_dialog", None):
-            return
-
-        parent = self._fullscreen_parent
-        geometry = self._fullscreen_geometry
-        self.fullscreen_dialog = None
-        self._fullscreen_parent = None
-        self._fullscreen_geometry = None
-
-        if parent is not None and geometry is not None:
-            self.setParent(parent)
-            self.setGeometry(geometry)
-            self.fullscreen_button.setText("⛶")
-            self.fullscreen_button.setToolTip("Fullscreen")
-            self.show()
-
-        dialog.deleteLater()
 
     def _generate_baseline_history(self):
         """
@@ -1050,6 +1041,12 @@ class TimeSeriesWidget(QFrame):
         Pull latest 1-hour time-series data from simulator or history.json
         and update the chart canvas and badges.
         """
+        # Throttle to prevent duplicate polling jitter (from both auto_timer and parent voltage update)
+        now = time.time()
+        if hasattr(self, "_last_poll_time") and (now - self._last_poll_time) < 0.4:
+            return
+        self._last_poll_time = now
+
         sim = simulator or self.simulator
         history_data = {}
 
@@ -1183,3 +1180,49 @@ class TimeSeriesWidget(QFrame):
                                     lbl.setText(f"{name}: {latest}")
                         else:
                             lbl.setText(f"{name}: --")
+
+
+class TimeSeriesFullscreenDialog(QDialog):
+    """
+    Dedicated Fullscreen Dialog for 1-Hour Time Series Trends.
+    - Opens immediately with crisp white background (ZERO black screen flash).
+    - Contains a full-sized TimeSeriesWidget (compact=False) with large fonts and filter pills.
+    - Leaves the compact widget inside its parent QStackedWidget untouched,
+      ensuring the Voltage Profile tab is never hidden or broken upon exiting.
+    - Esc or ✕ button exits cleanly and instantly.
+    """
+
+    def __init__(self, simulator=None, selected_metric="ALL", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("1-Hour Rolling Time Series Trends (Fullscreen)")
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #FFFFFF;
+            }
+        """)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(0)
+
+        # Full-sized chart widget with full buttons, big canvas, legends
+        self.chart_widget = TimeSeriesWidget(simulator=simulator, compact=False)
+        self.chart_widget.on_metric_selected(selected_metric)
+
+        # Style the fullscreen exit button
+        self.chart_widget.fullscreen_button.setText("✕")
+        self.chart_widget.fullscreen_button.setToolTip("Exit Fullscreen (Esc)")
+        try:
+            self.chart_widget.fullscreen_button.clicked.disconnect()
+        except Exception:
+            pass
+        self.chart_widget.fullscreen_button.clicked.connect(self.close)
+
+        layout.addWidget(self.chart_widget)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
