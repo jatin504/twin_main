@@ -798,7 +798,6 @@ class DisplayItem(QWidget):
 
 class PowerFlowWidget(QFrame):
     # Tag mappings from PPC database for Solar Plant & Solar Inverter
-    # Zakir can directly modify these tag names as needed
     SOLAR_PPC_TAGS = {
         "active_power": "Solar.ActivePower",        # PPC tag for Solar Plant MW
         "reactive_power": "Solar.ReactivePower",    # PPC tag for Solar Plant MVAr
@@ -1179,17 +1178,6 @@ class PowerFlowWidget(QFrame):
             self.blockWidget2.set_box_values(
                 grid_data["block_panel_values"][2]
             )
-            grid_fault = grid_data.get("fault_code")
-            is_global_tf_fault = False
-            if grid_fault is not None:
-                try:
-                    fc = int(grid_fault)
-                    is_global_tf_fault = fc in (
-                        FaultCode.TRANSFORMER_OVERLOADING,
-                        FaultCode.TRANSFORMER_UNDERLOADING,
-                    )
-                except (ValueError, TypeError):
-                    pass
 
             for panel_no, panel_widget in (
                 (1, self.canvas.ltPanel1),
@@ -1206,14 +1194,6 @@ class PowerFlowWidget(QFrame):
                             panel_fault = True
                     except (ValueError, TypeError):
                         pass
-
-                if is_global_tf_fault and not panel_fault:
-                    if loading_val is not None:
-                        try:
-                            if float(loading_val) >= 70.0:
-                                panel_fault = True
-                        except (ValueError, TypeError):
-                            pass
 
                 panel_widget.set_values(
                     loading=loading_val,
