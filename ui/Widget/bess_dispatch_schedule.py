@@ -57,11 +57,14 @@ class BessDispatchScheduleWidget(QFrame):
     }
     """
 
+    event_started = Signal(dict)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.setObjectName("BessDispatchScheduleWidget")
         self.setFixedSize(630, 250)
+        self._last_notified_event_id = None
 
         self.schedule_data = []
         self.result_data = {}
@@ -802,6 +805,22 @@ class BessDispatchScheduleWidget(QFrame):
             )
         self._update_running_event_badge()
 
+    def _notify_event_if_new(self, event_id, decision="", load=0.0, time_stamp="", soc=50.0):
+        """Emit notification signal when an event starts or timestamp transitions."""
+        if not event_id:
+            return
+        notification_key = (event_id, time_stamp)
+        if getattr(self, "_last_notified_key", None) != notification_key:
+            self._last_notified_key = notification_key
+            self._last_notified_event_id = event_id
+            self.event_started.emit({
+                "event_id": event_id,
+                "decision": decision,
+                "load": load,
+                "time_stamp": time_stamp,
+                "soc": soc,
+            })
+
     def _toggle_fullscreen(self):
         if self.fullscreen_dialog is not None:
             self.fullscreen_dialog.close()
@@ -815,11 +834,13 @@ class BessDispatchScheduleWidget(QFrame):
         self._fullscreen_geometry = self.geometry()
 
         dialog = QDialog(parent.window())
-        dialog.setWindowTitle("BESS Dispatch Schedule")
+        dialog.setWindowFlags(Qt.Window)
+        dialog.setWindowTitle("BESS Dispatch Schedule (Fullscreen)")
         dialog.setStyleSheet("QDialog { background: #FFFFFF; }")
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.addWidget(self)
+        dialog.keyPressEvent = lambda e: dialog.close() if e.key() == Qt.Key_Escape else QDialog.keyPressEvent(dialog, e)
         dialog.finished.connect(
             lambda _result, active_dialog=dialog:
                 self._restore_from_fullscreen(active_dialog)
@@ -831,7 +852,7 @@ class BessDispatchScheduleWidget(QFrame):
         self.schedule_scroll.setFixedHeight(250)
         self._set_fullscreen_fonts(True)
         self.fullscreen_button.setText("✕")
-        self.fullscreen_button.setToolTip("Exit fullscreen")
+        self.fullscreen_button.setToolTip("Exit fullscreen (Esc)")
         dialog.showFullScreen()
 
     def _restore_from_fullscreen(self, dialog):
@@ -1535,6 +1556,13 @@ class BessDispatchScheduleWidget(QFrame):
                 self._update_timing_display()
                 self._refresh_schedule_active_row(running_idx, force=True)
                 QTimer.singleShot(100, lambda i=running_idx: self._scroll_to_row(i))
+                self._notify_event_if_new(
+                    event_id,
+                    event_item.get("decision", ""),
+                    event_item.get("load", 0),
+                    time_stamp=event_item.get("time_stamp", ""),
+                    soc=event_item.get("soc", 50.0),
+                )
         self._update_running_event_badge()
 
     def load_json(self, file_path):
@@ -1584,8 +1612,27 @@ class BessDispatchScheduleWidget(QFrame):
         # Determine target running row index strictly from event ID and timestamps
         target_running_row_index = None
 
-        # 1. Match by running event id first if provided
-        if detected_running_id:
+        # 1. Match by running timestamp first if provided (allows dynamic time stepping from JSON)
+        if detected_running_ts:
+            for i, rec in enumerate(records):
+                if rec.get("time_stamp") == detected_running_ts:
+                    target_running_row_index = i
+                    break
+            if target_running_row_index is None:
+                parsed_curr = self._parse_timestamp(detected_running_ts)
+                if isinstance(parsed_curr, datetime):
+                    for i, rec in enumerate(records):
+                        ts = rec.get("time_stamp")
+                        if not ts:
+                            continue
+                        start_dt = self._parse_timestamp(ts)
+                        if isinstance(start_dt, datetime) and start_dt <= parsed_curr:
+                            target_running_row_index = i
+                        elif isinstance(start_dt, datetime) and start_dt > parsed_curr:
+                            break
+
+        # 2. Match by running event id if timestamp did not match or was not provided
+        if target_running_row_index is None and detected_running_id:
             matching_indices = [i for i, r in enumerate(records) if r.get("event_id") == detected_running_id]
             if len(matching_indices) == 1:
                 target_running_row_index = matching_indices[0]
@@ -1596,20 +1643,6 @@ class BessDispatchScheduleWidget(QFrame):
                         break
                 if target_running_row_index is None:
                     target_running_row_index = matching_indices[0]
-
-        # 2. Match by timestamp interval if target_running_row_index is not yet determined
-        if target_running_row_index is None and detected_running_ts:
-            parsed_curr = self._parse_timestamp(detected_running_ts)
-            if isinstance(parsed_curr, datetime):
-                for i, rec in enumerate(records):
-                    ts = rec.get("time_stamp")
-                    if not ts:
-                        continue
-                    start_dt = self._parse_timestamp(ts)
-                    if isinstance(start_dt, datetime) and start_dt <= parsed_curr:
-                        target_running_row_index = i
-                    elif isinstance(start_dt, datetime) and start_dt > parsed_curr:
-                        break
 
         # 3. Detect from running result in results array
         if target_running_row_index is None:
@@ -1638,10 +1671,10 @@ class BessDispatchScheduleWidget(QFrame):
                 target_running_row_index = 0
 
         if target_running_row_index is not None and target_running_row_index < len(records):
-            if not detected_running_id:
-                detected_running_id = records[target_running_row_index].get("event_id")
+            matched_rec = records[target_running_row_index]
+            detected_running_id = matched_rec.get("event_id") or detected_running_id
             if not detected_running_ts:
-                detected_running_ts = records[target_running_row_index].get("time_stamp")
+                detected_running_ts = matched_rec.get("time_stamp")
 
         self.running_event_id = detected_running_id
         running_row_index = None
@@ -1797,6 +1830,14 @@ class BessDispatchScheduleWidget(QFrame):
 
         initial_detail = schedule[running_row_index] if (running_row_index is not None and running_row_index < len(schedule)) else (schedule[0] if schedule else None)
         self.update_schedule(schedule, initial_detail)
+        if self.running_event_id and initial_detail:
+            self._notify_event_if_new(
+                self.running_event_id,
+                initial_detail.get("decision", ""),
+                initial_detail.get("load", 0),
+                time_stamp=initial_detail.get("time_stamp") or self.running_timestamp or "",
+                soc=initial_detail.get("soc", 50.0),
+            )
         self.json_last_modified = os.path.getmtime(self.json_file_path)
 
     def check_json_update(self):

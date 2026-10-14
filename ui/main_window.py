@@ -3,10 +3,11 @@ from datetime import datetime, timedelta
 
 import yaml
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
+    QFrame,
     QVBoxLayout,
     QHBoxLayout,
     QScrollArea,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QSizePolicy,
     QStackedWidget,
+    QGraphicsOpacityEffect,
 )
 
 from state.tags import Tags
@@ -37,6 +39,224 @@ from ui.Widget.plant_control_cards import PlantControlCards
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+class EventToast(QFrame):
+    """
+    Floating, non-blocking toast notification banner that pops up smoothly
+    at the top-right of the dashboard whenever a new BESS dispatch event arrives.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("EventToast")
+        self.setFixedWidth(420)
+        self.setFixedHeight(95)
+
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.ToolTip | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.hide()
+
+        self._opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._opacity)
+        self._opacity.setOpacity(1.0)
+
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self._fade_out)
+
+        self._fade = QPropertyAnimation(self._opacity, b"opacity", self)
+        self._fade.setDuration(350)
+        self._fade.setEasingCurve(QEasingCurve.InOutQuad)
+        self._fade.finished.connect(self._on_fade_finished)
+        self._fading_out = False
+
+        self._build_ui()
+
+    def _build_ui(self):
+        self.setStyleSheet("""
+            QFrame#EventToast {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0F172A, stop:1 #1E293B);
+                border: 1px solid #334155;
+                border-left: 5px solid #10B981;
+                border-radius: 8px;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 9, 14, 9)
+        layout.setSpacing(4)
+
+        # Header Row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(6)
+
+        icon_lbl = QLabel("⚡")
+        icon_lbl.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold;")
+        header_row.addWidget(icon_lbl)
+
+        title_lbl = QLabel("NEW DISPATCH EVENT DETECTED")
+        title_lbl.setStyleSheet("color: #38BDF8; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;")
+        header_row.addWidget(title_lbl)
+
+        header_row.addStretch()
+
+        self.time_lbl = QLabel()
+        self.time_lbl.setStyleSheet("color: #94A3B8; font-size: 9.5px; font-weight: 600;")
+        header_row.addWidget(self.time_lbl)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(16, 16)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #94A3B8;
+                border: none;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #FFFFFF;
+            }
+        """)
+        close_btn.clicked.connect(self._fade_out)
+        header_row.addWidget(close_btn)
+        layout.addLayout(header_row)
+
+        # Body Row
+        body_row = QHBoxLayout()
+        body_row.setSpacing(8)
+
+        self.eid_lbl = QLabel("EVENT")
+        self.eid_lbl.setStyleSheet("color: #F8FAFC; font-size: 12px; font-weight: 700; font-family: monospace;")
+        body_row.addWidget(self.eid_lbl)
+
+        self.dec_badge = QLabel("ACTIVE")
+        body_row.addWidget(self.dec_badge)
+        body_row.addStretch()
+        layout.addLayout(body_row)
+
+        # Details Row
+        self.details_lbl = QLabel()
+        self.details_lbl.setStyleSheet("color: #CBD5E1; font-size: 9.5px; font-weight: 500;")
+        layout.addWidget(self.details_lbl)
+
+    def show_event(self, payload: dict | None = None, duration_ms: int = 4000):
+        """Display toast notification with event details."""
+        payload = payload or {}
+        event_id = str(payload.get("event_id") or "EVENT")
+        decision = str(payload.get("decision") or "ACTIVE").upper()
+        load = payload.get("load", 0.0)
+        soc = payload.get("soc", 50.0)
+        time_stamp = payload.get("time_stamp", "")
+
+        time_part = ""
+        if time_stamp:
+            try:
+                time_part = str(time_stamp).split(" ")[-1][:5]
+            except Exception:
+                time_part = str(time_stamp)
+        self.time_lbl.setText(f"Start: {time_part}" if time_part else "")
+        self.eid_lbl.setText(event_id)
+
+        # Decision color theme & accent left border
+        if "CHARGE" in decision:
+            dec_color = "#10B981"
+            dec_bg = "rgba(16, 185, 129, 0.2)"
+            border_left = "#10B981"
+        elif "DISCHARGE" in decision:
+            dec_color = "#F59E0B"
+            dec_bg = "rgba(245, 158, 11, 0.2)"
+            border_left = "#F59E0B"
+        else:
+            dec_color = "#94A3B8"
+            dec_bg = "rgba(148, 163, 184, 0.2)"
+            border_left = "#64748B"
+
+        self.setStyleSheet(f"""
+            QFrame#EventToast {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0F172A, stop:1 #1E293B);
+                border: 1px solid #334155;
+                border-left: 5px solid {border_left};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                background: transparent;
+                border: none;
+            }}
+        """)
+
+        self.dec_badge.setText(decision)
+        self.dec_badge.setStyleSheet(f"""
+            QLabel {{
+                background: {dec_bg};
+                color: {dec_color};
+                font-size: 9px;
+                font-weight: 800;
+                padding: 2px 7px;
+                border-radius: 4px;
+                border: 1px solid {dec_color};
+            }}
+        """)
+
+        try:
+            load_num = float(load)
+            load_str = f"{load_num:.1f} kW"
+        except Exception:
+            load_str = f"{load} kW"
+
+        try:
+            soc_num = float(soc)
+            soc_str = f"{soc_num:.1f}%"
+        except Exception:
+            soc_str = f"{soc}%"
+
+        self.details_lbl.setText(f"Load Demand: {load_str}  |  Target SOC: {soc_str}  |  Window: 15m")
+
+        self.adjustSize()
+        self._place()
+        self._fading_out = False
+        self._fade.stop()
+        self._opacity.setOpacity(1.0)
+        self.show()
+        self.raise_()
+        self._hide_timer.start(max(3500, int(duration_ms)))
+
+    def _place(self):
+        parent_window = self.window() if self.window() else self.parentWidget()
+        if parent_window and parent_window.isVisible():
+            margin = 32
+            win_width = max(1200, parent_window.width())
+            target_x = max(20, win_width - self.width() - margin)
+            target_pt = parent_window.mapToGlobal(QPoint(target_x, 75))
+            self.move(target_pt)
+        else:
+            self.move(800, 75)
+
+    def reposition(self):
+        if self.isVisible():
+            self._place()
+
+    def _fade_out(self):
+        if not self.isVisible() or self._fading_out:
+            return
+        self._fading_out = True
+        self._fade.stop()
+        self._fade.setStartValue(self._opacity.opacity())
+        self._fade.setEndValue(0.0)
+        self._fade.start()
+
+    def _on_fade_finished(self):
+        if self._fading_out:
+            self.hide()
+            self._opacity.setOpacity(1.0)
+            self._fading_out = False
 
 class MainWindow(QMainWindow):
 
@@ -342,16 +562,16 @@ class MainWindow(QMainWindow):
         self.scrollArea.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.central_stack.addWidget(self.scrollArea)
 
-        # SCROLL CONTENT - ORIGINAL 2 ROWS INTACT
+        # SCROLL CONTENT
         scrollContent = QWidget()
-        scrollContent.setMinimumSize(1520, 770)
+        scrollContent.setMinimumSize(1520, 1060)
 
         scrollLayout = QVBoxLayout(scrollContent)
-        scrollLayout.setContentsMargins(0, 0, 0, 0)
-        scrollLayout.setSpacing(0)
+        scrollLayout.setContentsMargins(0, 0, 0, 10)
+        scrollLayout.setSpacing(10)
         scrollLayout.setAlignment(Qt.AlignTop)
 
-        # FIRST ROW - POWER FLOW & BUS VOLTAGES (100% INTACT)
+        # ROW 1 - POWER FLOW DIAGRAM & BUS VOLTAGES (MATCHES REFERENCE DESIGN)
         powerFlowRow = QWidget()
         powerFlowRow.setFixedSize(1520, 510)
 
@@ -380,7 +600,25 @@ class MainWindow(QMainWindow):
 
         scrollLayout.addWidget(powerFlowRow)
 
-        # SECOND ROW - BRANCH SUMMARY, BESS DISPATCH SCHEDULE (MIDDLE), BESS SUMMARY (RIGHT)
+        # ROW 2 - 2-COLUMN 1-HR TREND & ADJACENT VOLTAGE PROFILE GRAPH
+        trendRow = QWidget()
+        trendRow.setFixedSize(1520, 270)
+
+        # Left slot: 1-Hour Rolling Trends taking 2 columns of space (width: 1030)
+        self.dashboardTimeSeries = TimeSeriesWidget(simulator=self.simulator, dashboard=True)
+        self.dashboardTimeSeries.setParent(trendRow)
+        self.dashboardTimeSeries.setGeometry(0, 0, 1030, 265)
+        self.dashboardTimeSeries.show()
+
+        # Right slot: Adjacent Voltage Profile graph (width: 480)
+        self.adjacentVoltageProfile = VoltageProfileWidget(simulator=self.simulator, width=480, height=265)
+        self.adjacentVoltageProfile.setParent(trendRow)
+        self.adjacentVoltageProfile.setGeometry(1040, 0, 480, 265)
+        self.adjacentVoltageProfile.show()
+
+        scrollLayout.addWidget(trendRow)
+
+        # ROW 3 - BRANCH SUMMARY, BESS DISPATCH SCHEDULE (MIDDLE), BESS SUMMARY (RIGHT)
         secondRow = QWidget()
         secondRow.setFixedSize(1520, 255)
 
@@ -393,6 +631,10 @@ class MainWindow(QMainWindow):
         self.bessDispatchSchedule = BessDispatchScheduleWidget()
         self.bessDispatchSchedule.setParent(secondRow)
         self.bessDispatchSchedule.setGeometry(400, 0, 630, 250)
+
+        # Notification Toast popup for new event triggers
+        self.event_toast = EventToast(self)
+        self.bessDispatchSchedule.event_started.connect(self.event_toast.show_event)
 
         result_json = os.getenv("BESS_DISPATCH_RESULT_PATH")
         if not result_json or not os.path.exists(result_json):
@@ -533,6 +775,8 @@ class MainWindow(QMainWindow):
                 0,
                 self.position_simulation_button
             )
+        if hasattr(self, "event_toast"):
+            self.event_toast.reposition()
 
     def load_custom_configuration(self):
         try:
@@ -645,6 +889,14 @@ class MainWindow(QMainWindow):
 
             if hasattr(self, "voltageProfile") and hasattr(self.voltageProfile, "set_simulator"):
                 self.voltageProfile.set_simulator(self.simulator)
+            if hasattr(self, "adjacentVoltageProfile") and hasattr(self.adjacentVoltageProfile, "set_simulator"):
+                self.adjacentVoltageProfile.set_simulator(self.simulator)
+            if hasattr(self, "dashboardTimeSeries"):
+                self.dashboardTimeSeries.simulator = self.simulator
+                self.dashboardTimeSeries.update_from_simulator(self.simulator)
+            if hasattr(self, "loadDistribution"):
+                self.loadDistribution.simulator = self.simulator
+                self.loadDistribution.update_from_simulator(self.simulator)
 
             if hasattr(self, "bessDispatchSchedule") and self.bessDispatchSchedule is not None:
                 if getattr(self.bessDispatchSchedule, "running_event_id", None) is None:
@@ -1024,15 +1276,21 @@ class MainWindow(QMainWindow):
             print("Voltage profile is empty")
             return
 
-        # VOLTAGE PROFILE CHART
-        self.voltageProfile.update_voltage_data(
-            profile
-        )
+        # VOLTAGE PROFILE CHARTS
+        if hasattr(self, "voltageProfile"):
+            self.voltageProfile.update_voltage_data(
+                profile
+            )
+        if hasattr(self, "adjacentVoltageProfile"):
+            self.adjacentVoltageProfile.update_voltage_data(
+                profile
+            )
 
         # BUS VOLTAGE SUMMARY
-        self.busVoltageSummary.update_voltage_data(
-            profile
-        )
+        if hasattr(self, "busVoltageSummary"):
+            self.busVoltageSummary.update_voltage_data(
+                profile
+            )
 
         # BRANCH SUMMARY (DYNAMIC FROM TOPOLOGY & NETWORK)
         if hasattr(self, "branchSummary"):
@@ -1040,8 +1298,18 @@ class MainWindow(QMainWindow):
                 self.network_manager
             )
 
-        # 1-HOUR TIME SERIES CHART
+        # 1-HOUR TIME SERIES CHARTS
         if hasattr(self, "timeSeriesWidget"):
             self.timeSeriesWidget.update_from_simulator(
+                self.simulator
+            )
+        if hasattr(self, "dashboardTimeSeries"):
+            self.dashboardTimeSeries.update_from_simulator(
+                self.simulator
+            )
+
+        # LOAD DISTRIBUTION
+        if hasattr(self, "loadDistribution"):
+            self.loadDistribution.update_from_simulator(
                 self.simulator
             )

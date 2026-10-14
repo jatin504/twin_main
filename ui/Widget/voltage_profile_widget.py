@@ -4,13 +4,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QStackedWidget,
     QSizePolicy,
 )
-
-from ui.Widget.time_series_widget import TimeSeriesWidget
 
 
 class VoltageProfileCanvas(QWidget):
@@ -186,19 +181,17 @@ class VoltageProfileCanvas(QWidget):
 
 class VoltageProfileWidget(QFrame):
     """
-    Row 1 Voltage Widget (Width: 330, Height: 300):
-    Dual-mode presentation featuring:
-    1. 1-Hour Time Series Historical Trends (Active by default - maps Voltage Profile buses + Load Demand)
-    2. Per-Unit Bus Voltage Profile spatial chart
-    3. Fullscreen expansion (⛶)
+    Right-column spatial bus voltage profile (p.u.) chart.
     """
 
-    def __init__(self, simulator=None, parent=None):
+    def __init__(self, simulator=None, parent=None, width: int = 330, height: int = 300):
         super().__init__(parent)
         self.simulator = simulator
 
-        self.setFixedWidth(330)
-        self.setFixedHeight(300)
+        if width > 0:
+            self.setFixedWidth(width)
+        if height > 0:
+            self.setFixedHeight(height)
 
         self.setStyleSheet("""
             VoltageProfileWidget {
@@ -209,74 +202,14 @@ class VoltageProfileWidget(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
 
-        # Tab switch header
-        tab_row = QHBoxLayout()
-        tab_row.setSpacing(4)
-
-        self.btn_trends = QPushButton("1-Hr Trends")
-        self.btn_profile = QPushButton("Bus Profile (p.u.)")
-
-        for btn in (self.btn_trends, self.btn_profile):
-            btn.setCheckable(True)
-            btn.setFixedHeight(22)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: #F1F5F9;
-                    color: #475569;
-                    border: 1px solid #CBD5E1;
-                    border-radius: 4px;
-                    font-size: 10px;
-                    font-weight: 600;
-                    padding: 2px 8px;
-                }
-                QPushButton:hover {
-                    background: #E2E8F0;
-                    color: #0F172A;
-                }
-                QPushButton:checked {
-                    background: #2563EB;
-                    color: #FFFFFF;
-                    border: 1px solid #2563EB;
-                    font-weight: 700;
-                }
-            """)
-
-        self.btn_trends.setChecked(True)
-        self.btn_trends.clicked.connect(lambda: self.switch_view(0))
-        self.btn_profile.clicked.connect(lambda: self.switch_view(1))
-
-        tab_row.addWidget(self.btn_trends)
-        tab_row.addWidget(self.btn_profile)
-        tab_row.addStretch()
-
-        layout.addLayout(tab_row)
-
-        # Stacked pages
-        self.stack = QStackedWidget(self)
-
-        # Page 0: 1-Hour Rolling Trends (Active by default)
-        self.time_series = TimeSeriesWidget(simulator=self.simulator, compact=True)
-        self.stack.addWidget(self.time_series)
-
-        # Page 1: Per-unit Bus Voltage Profile
         self.bus_canvas = VoltageProfileCanvas(self)
-        self.stack.addWidget(self.bus_canvas)
-
-        layout.addWidget(self.stack, 1)
-
-    def switch_view(self, index: int):
-        self.stack.setCurrentIndex(index)
-        self.btn_trends.setChecked(index == 0)
-        self.btn_profile.setChecked(index == 1)
+        layout.addWidget(self.bus_canvas, 1)
 
     def update_voltage_data(self, bus_voltages):
         self.bus_canvas.update_voltage_data(bus_voltages)
-        self.time_series.update_from_simulator(self.simulator)
 
     def set_simulator(self, simulator):
         self.simulator = simulator
-        self.time_series.simulator = simulator
-        self.time_series.update_from_simulator(simulator)

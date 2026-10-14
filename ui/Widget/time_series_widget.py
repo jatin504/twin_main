@@ -7,7 +7,17 @@ import time
 from datetime import datetime
 from common.constants import IST
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen, QFont, QBrush, QLinearGradient
+from PySide6.QtGui import (
+    QColor,
+    QPainter,
+    QPen,
+    QFont,
+    QBrush,
+    QLinearGradient,
+    QPainterPath,
+    QGuiApplication,
+    QPalette,
+)
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -38,12 +48,58 @@ class TimeSeriesChartCanvas(QWidget):
             "tier": (0.75, 0.95),
         },
         "Network.LoadPower": {
-            "label": "Load Demand",
+            "label": "Load",
             "unit": "kW",
-            "color": "#0D9488",  # Teal
+            "color": "#F59E0B",
             "scale": 1.0,
             "nominal": (1500.0, 4500.0),
             "tier": (0.05, 0.25),
+            "fill": True,
+        },
+        "Solar.ActivePower": {
+            "label": "Solar Generation",
+            "unit": "kW",
+            "color": "#FB923C",
+            "scale": 1.0,
+            "nominal": (0.0, 1500.0),
+            "tier": (0.05, 0.25),
+            "fill": True,
+        },
+        "BESS.ChargePower": {
+            "label": "BESS Charge",
+            "unit": "kW",
+            "color": "#22C55E",
+            "scale": 1.0,
+            "nominal": (0.0, 2500.0),
+            "tier": (0.05, 0.25),
+            "fill": True,
+        },
+        "BESS.DischargePower": {
+            "label": "BESS Discharge",
+            "unit": "kW",
+            "color": "#16A34A",
+            "scale": 1.0,
+            "nominal": (0.0, 2500.0),
+            "tier": (0.05, 0.25),
+            "fill": True,
+        },
+        "Grid.ImportPower": {
+            "label": "Grid Import",
+            "unit": "kW",
+            "color": "#2563EB",
+            "scale": 1.0,
+            "nominal": (0.0, 4000.0),
+            "tier": (0.05, 0.25),
+            "fill": True,
+        },
+        "Grid.ExportPower": {
+            "label": "Grid Export",
+            "unit": "kW",
+            "color": "#7C3AED",
+            "scale": 1.0,
+            "nominal": (0.0, 4000.0),
+            "tier": (0.05, 0.25),
+            "fill": True,
         },
         "Grid.Voltage": {
             "label": "Grid 33kV Voltage",
@@ -133,6 +189,7 @@ class TimeSeriesChartCanvas(QWidget):
         self.setMouseTracking(True)
         self.hover_pos: QPoint | None = None
         self.hover_active: bool = False
+        self.dashboard_style: bool = False
 
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
@@ -202,10 +259,23 @@ class TimeSeriesChartCanvas(QWidget):
 
         # Determine which metrics to plot
         if self.selected_metric == "ALL":
-            default_keys = ["SOC", "Grid.Voltage", "Network.LoadPower", "Grid.BUS_A_Voltage", "Battery.Power"]
+            default_keys = [
+                "Network.LoadPower",
+                "Solar.ActivePower",
+                "BESS.ChargePower",
+                "BESS.DischargePower",
+                "Grid.ImportPower",
+                "Grid.ExportPower",
+                "SOC",
+                "Grid.Voltage",
+                "PCS.AC_Voltage",
+                "Grid.Frequency",
+                "Grid.BUS_A_Voltage",
+                "Battery.Power",
+            ]
             active_keys = [k for k in default_keys if k in self.history_data and self.history_data[k]]
             if not active_keys:
-                active_keys = [k for k in self.history_data.keys() if self.history_data[k]][:5]
+                active_keys = [k for k in self.history_data.keys() if self.history_data[k]][:8]
         else:
             active_keys = [self.selected_metric] if (self.selected_metric in self.history_data and self.history_data[self.selected_metric]) else []
 
@@ -364,10 +434,12 @@ class TimeSeriesChartCanvas(QWidget):
             p.drawLine(left, int(y), right, int(y))
 
             if is_all_mode:
-                # 1. Left Y-Axis: Power (kW)
+                # 1. Left Y-Axis: Power (MW on dashboard, kW otherwise)
                 val_power = power_min + frac * (power_max - power_min)
-                p.setPen(QColor("#0D9488"))  # Teal for Power
-                if is_compact:
+                p.setPen(QColor("#D97706"))
+                if self.dashboard_style:
+                    p.drawText(2, int(y + 4), f"{val_power / 1000.0:.2f}")
+                elif is_compact:
                     p.drawText(2, int(y + 4), f"{val_power:.0f}")
                 else:
                     p.drawText(4, int(y + 4), f"{val_power:.0f} kW")
@@ -392,8 +464,8 @@ class TimeSeriesChartCanvas(QWidget):
         # Top Axis Headers in ALL mode (Left=Power, Right=Voltage & SOC)
         if is_all_mode:
             p.setFont(QFont("Segoe UI", 6 if is_compact else 7, QFont.Bold))
-            p.setPen(QColor("#0D9488"))
-            p.drawText(2, top - 4, "kW (Power)")
+            p.setPen(QColor("#D97706"))
+            p.drawText(2, top - 4, "MW" if self.dashboard_style else "kW (Power)")
             p.setPen(QColor("#2563EB"))
             p.drawText(right + (4 if is_compact else 8), top - 4, "V (Volt)")
             p.setPen(QColor("#16A34A"))
@@ -449,12 +521,10 @@ class TimeSeriesChartCanvas(QWidget):
         # Store per-metric scale for exact highlight dot positioning
         metric_scales = {}
 
-        # Draw Lines for active metrics
-        for metric_key in active_keys:
+        def _curve_for(metric_key):
             pts = self.history_data.get(metric_key, [])
             if not pts:
-                continue
-
+                return None, None, None
             cfg = self.METRIC_CONFIG.get(metric_key, {
                 "label": metric_key,
                 "unit": "",
@@ -462,10 +532,7 @@ class TimeSeriesChartCanvas(QWidget):
                 "scale": 1.0,
                 "nominal": (0.0, 100.0),
             })
-            line_color = QColor(cfg["color"])
             m_unit = cfg.get("unit", "")
-
-            # Register scale for hover detection
             if is_all_mode:
                 if m_unit == "kW":
                     metric_scales[metric_key] = (power_min, power_range)
@@ -512,7 +579,31 @@ class TimeSeriesChartCanvas(QWidget):
                 px = left + frac_x * chart_width
                 py = bottom - frac_y * chart_height
                 curve_points.append(QPoint(int(px), int(py)))
+            return cfg, QColor(cfg["color"]), curve_points
 
+        # Filled power bands first, then strokes on top
+        for metric_key in active_keys:
+            cfg, line_color, curve_points = _curve_for(metric_key)
+            if not cfg or len(curve_points) < 2:
+                continue
+            if not (is_all_mode and cfg.get("fill")):
+                continue
+            fill_path = QPainterPath()
+            fill_path.moveTo(curve_points[0].x(), bottom)
+            for pt in curve_points:
+                fill_path.lineTo(pt)
+            fill_path.lineTo(curve_points[-1].x(), bottom)
+            fill_path.closeSubpath()
+            fill_color = QColor(line_color)
+            fill_color.setAlpha(70 if self.dashboard_style else 46)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(fill_color))
+            p.drawPath(fill_path)
+
+        for metric_key in active_keys:
+            cfg, line_color, curve_points = _curve_for(metric_key)
+            if not cfg:
+                continue
             if len(curve_points) >= 2:
                 p.setPen(QPen(line_color, 2.0 if is_compact else 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                 p.drawPolyline(curve_points)
@@ -696,7 +787,12 @@ class TimeSeriesWidget(QFrame):
 
     METRIC_FILTERS = [
         ("All Trends (Overview)", "ALL"),
-        ("Load Demand (kW)", "Network.LoadPower"),
+        ("Load (kW)", "Network.LoadPower"),
+        ("Solar Generation (kW)", "Solar.ActivePower"),
+        ("BESS Charge (kW)", "BESS.ChargePower"),
+        ("BESS Discharge (kW)", "BESS.DischargePower"),
+        ("Grid Import (kW)", "Grid.ImportPower"),
+        ("Grid Export (kW)", "Grid.ExportPower"),
         ("Bus 433 A Voltage (V)", "Grid.BUS_A_Voltage"),
         ("Bus 433 B Voltage (V)", "Grid.BUS_B_Voltage"),
         ("Bus 433 C Voltage (V)", "Grid.BUS_C_Voltage"),
@@ -709,10 +805,24 @@ class TimeSeriesWidget(QFrame):
         ("Grid Frequency (Hz)", "Grid.Frequency"),
     ]
 
-    def __init__(self, simulator=None, parent=None, compact: bool = False):
+    DASHBOARD_LEGEND = [
+        ("Network.LoadPower", "Load", "#F59E0B"),
+        ("Solar.ActivePower", "Solar Generation", "#FB923C"),
+        ("BESS.ChargePower", "BESS Charge", "#22C55E"),
+        ("BESS.DischargePower", "BESS Discharge", "#16A34A"),
+        ("Grid.ImportPower", "Grid Import", "#2563EB"),
+        ("Grid.ExportPower", "Grid Export", "#7C3AED"),
+        ("SOC", "SOC", "#16A34A"),
+        ("Grid.Voltage", "Grid Voltage", "#2563EB"),
+        ("PCS.AC_Voltage", "PCS Voltage", "#F59E0B"),
+        ("Grid.Frequency", "Frequency", "#0284C7"),
+    ]
+
+    def __init__(self, simulator=None, parent=None, compact: bool = False, dashboard: bool = False):
         super().__init__(parent)
         self.simulator = simulator
-        self.compact = compact
+        self.compact = compact and not dashboard
+        self.dashboard = dashboard
         self.fullscreen_dialog = None
         self._fullscreen_parent = None
         self._fullscreen_geometry = None
@@ -727,7 +837,110 @@ class TimeSeriesWidget(QFrame):
 
         layout = QVBoxLayout(self)
 
-        if self.compact:
+        if self.dashboard:
+            layout.setContentsMargins(10, 6, 10, 6)
+            layout.setSpacing(4)
+
+            header_row = QHBoxLayout()
+            header_row.setSpacing(8)
+
+            title = QLabel("1-HR TRENDS")
+            title.setStyleSheet(
+                "color: #0F172A; font-size: 11px; font-weight: 800; "
+                "font-family: 'Segoe UI', sans-serif; border: none;"
+            )
+            header_row.addWidget(title)
+
+            window_chip = QLabel("Last 1 Hour")
+            window_chip.setStyleSheet("""
+                QLabel {
+                    background: #F1F5F9;
+                    color: #475569;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 10px;
+                    font-size: 9px;
+                    font-weight: 700;
+                    padding: 2px 8px;
+                }
+            """)
+            header_row.addWidget(window_chip)
+            header_row.addStretch()
+
+            self.metric_combo = QComboBox()
+            self.metric_combo.setFixedHeight(22)
+            self.metric_combo.setMinimumWidth(190)
+            self.metric_combo.setStyleSheet("""
+                QComboBox {
+                    background: #F8FAFC;
+                    color: #1E293B;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    font-weight: 600;
+                    padding: 1px 6px;
+                }
+                QComboBox QAbstractItemView {
+                    background: #FFFFFF;
+                    color: #1E293B;
+                    selection-background-color: #2563EB;
+                    selection-color: #FFFFFF;
+                    font-size: 10px;
+                }
+            """)
+            for label, key in self.METRIC_FILTERS:
+                self.metric_combo.addItem(label, key)
+            self.metric_combo.currentIndexChanged.connect(self._on_combo_changed)
+            header_row.addWidget(self.metric_combo)
+
+            self.fullscreen_button = QPushButton("⛶")
+            self.fullscreen_button.setFixedSize(22, 22)
+            self.fullscreen_button.setCursor(Qt.PointingHandCursor)
+            self.fullscreen_button.setToolTip("Fullscreen")
+            self.fullscreen_button.setStyleSheet("""
+                QPushButton {
+                    background: #F1F5F9;
+                    color: #475569;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #E2E8F0;
+                    color: #2563EB;
+                }
+            """)
+            self.fullscreen_button.clicked.connect(self._toggle_fullscreen)
+            header_row.addWidget(self.fullscreen_button)
+            layout.addLayout(header_row)
+
+            self.canvas = TimeSeriesChartCanvas(self)
+            self.canvas.dashboard_style = True
+            layout.addWidget(self.canvas, 1)
+
+            legend_row = QHBoxLayout()
+            legend_row.setSpacing(10)
+            self.legend_labels = {}
+            for key, name, color in self.DASHBOARD_LEGEND:
+                item_box = QHBoxLayout()
+                item_box.setSpacing(3)
+                swatch = QLabel()
+                swatch.setFixedSize(9, 9)
+                swatch.setStyleSheet(
+                    f"background: {color}; border: 1px solid {color}; border-radius: 1px;"
+                )
+                lbl = QLabel(name)
+                lbl.setStyleSheet(
+                    "color: #64748B; font-size: 8.5px; font-weight: 600; border: none;"
+                )
+                item_box.addWidget(swatch)
+                item_box.addWidget(lbl)
+                legend_row.addLayout(item_box)
+                self.legend_labels[key] = (name, lbl)
+            legend_row.addStretch()
+            layout.addLayout(legend_row)
+
+        elif self.compact:
             layout.setContentsMargins(6, 4, 6, 4)
             layout.setSpacing(4)
 
@@ -961,19 +1174,21 @@ class TimeSeriesWidget(QFrame):
         )
         self.fullscreen_dialog = dialog
 
-        def _on_closed():
+        def _on_closed(_result=None):
             self.fullscreen_dialog = None
-            # Sync chosen metric back to compact view
-            if hasattr(dialog, "chart_widget"):
-                metric = dialog.chart_widget.canvas.selected_metric
-                self.on_metric_selected(metric)
-                if hasattr(self, "metric_combo"):
-                    for i in range(self.metric_combo.count()):
-                        if self.metric_combo.itemData(i) == metric:
-                            self.metric_combo.setCurrentIndex(i)
-                            break
+            try:
+                if hasattr(dialog, "chart_widget") and hasattr(dialog.chart_widget, "canvas"):
+                    metric = dialog.chart_widget.canvas.selected_metric
+                    self.on_metric_selected(metric)
+                    if hasattr(self, "metric_combo"):
+                        for i in range(self.metric_combo.count()):
+                            if self.metric_combo.itemData(i) == metric:
+                                self.metric_combo.setCurrentIndex(i)
+                                break
+            except Exception:
+                pass
 
-        dialog.destroyed.connect(_on_closed)
+        dialog.finished.connect(_on_closed)
         dialog.showFullScreen()
 
     def _generate_baseline_history(self):
@@ -992,6 +1207,11 @@ class TimeSeriesWidget(QFrame):
             "Network.LoadVoltage": [],
             "PCS.AC_Voltage": [],
             "Network.LoadPower": [],
+            "Solar.ActivePower": [],
+            "BESS.ChargePower": [],
+            "BESS.DischargePower": [],
+            "Grid.ImportPower": [],
+            "Grid.ExportPower": [],
             "Battery.Power": [],
             "PCS.ActivePowerOutput": [],
             "Grid.Frequency": [],
@@ -1012,6 +1232,12 @@ class TimeSeriesWidget(QFrame):
             freq = round(50.0 + 0.04 * math.sin(i * 0.2), 3)
             p_power = round(1809.0 + 15.0 * math.sin(i * 0.08), 1)
 
+            solar_p = round(max(0.0, 1150.0 + 80.0 * math.sin(i * 0.07)), 1)
+            bess_chg = round(max(0.0, 950.0 + 100.0 * math.sin(i * 0.11)), 1) if frac < 0.45 else 0.0
+            bess_disch = round(max(0.0, 1200.0 + 120.0 * math.cos(i * 0.09)), 1) if frac >= 0.45 else 0.0
+            grid_imp = round(max(0.0, load_p - solar_p - bess_disch + bess_chg), 1)
+            grid_exp = round(max(0.0, solar_p + bess_disch - load_p), 1)
+
             history["SOC"].append({"time": t, "timestamp": iso_time, "value": soc_val})
             history["Grid.Voltage"].append({"time": t, "timestamp": iso_time, "value": grid_v})
             history["Grid.BUS_A_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_a})
@@ -1020,6 +1246,11 @@ class TimeSeriesWidget(QFrame):
             history["Network.LoadVoltage"].append({"time": t, "timestamp": iso_time, "value": load_v})
             history["PCS.AC_Voltage"].append({"time": t, "timestamp": iso_time, "value": pcs_v})
             history["Network.LoadPower"].append({"time": t, "timestamp": iso_time, "value": load_p})
+            history["Solar.ActivePower"].append({"time": t, "timestamp": iso_time, "value": solar_p})
+            history["BESS.ChargePower"].append({"time": t, "timestamp": iso_time, "value": bess_chg})
+            history["BESS.DischargePower"].append({"time": t, "timestamp": iso_time, "value": bess_disch})
+            history["Grid.ImportPower"].append({"time": t, "timestamp": iso_time, "value": grid_imp})
+            history["Grid.ExportPower"].append({"time": t, "timestamp": iso_time, "value": grid_exp})
             history["Battery.Power"].append({"time": t, "timestamp": iso_time, "value": p_power})
             history["PCS.ActivePowerOutput"].append({"time": t, "timestamp": iso_time, "value": p_power})
             history["Grid.Frequency"].append({"time": t, "timestamp": iso_time, "value": freq})
@@ -1194,6 +1425,7 @@ class TimeSeriesFullscreenDialog(QDialog):
 
     def __init__(self, simulator=None, selected_metric="ALL", parent=None):
         super().__init__(parent)
+        self.setWindowFlags(Qt.Window)
         self.setWindowTitle("1-Hour Rolling Time Series Trends (Fullscreen)")
         self.setStyleSheet("""
             QDialog {
