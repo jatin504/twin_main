@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QSizePolicy,
+    QScrollArea,
 )
 
 
@@ -39,80 +40,64 @@ class TimeSeriesChartCanvas(QWidget):
     """
 
     METRIC_CONFIG = {
-        "SOC": {
-            "label": "Battery SOC",
-            "unit": "%",
-            "color": "#16A34A",  # Emerald Green
-            "scale": 1.0,
-            "nominal": (45.0, 60.0),
-            "tier": (0.75, 0.95),
-        },
-        "Network.LoadPower": {
-            "label": "Load",
-            "unit": "kW",
-            "color": "#F59E0B",
-            "scale": 1.0,
-            "nominal": (1500.0, 4500.0),
-            "tier": (0.05, 0.25),
-            "fill": True,
-        },
         "Solar.ActivePower": {
             "label": "Solar Generation",
             "unit": "kW",
-            "color": "#FB923C",
+            "color": "#F97316",  # Sun Orange (Exclusive Area Spline)
             "scale": 1.0,
             "nominal": (0.0, 1500.0),
             "tier": (0.05, 0.25),
             "fill": True,
         },
+        "Network.LoadPower": {
+            "label": "Load",
+            "unit": "kW",
+            "color": "#6366F1",  # Modern Indigo
+            "scale": 1.0,
+            "nominal": (1500.0, 4500.0),
+            "tier": (0.05, 0.25),
+            "fill": False,
+        },
         "BESS.ChargePower": {
             "label": "BESS Charge",
             "unit": "kW",
-            "color": "#22C55E",
+            "color": "#10B981",  # Emerald Green
             "scale": 1.0,
             "nominal": (0.0, 2500.0),
             "tier": (0.05, 0.25),
-            "fill": True,
+            "fill": False,
         },
         "BESS.DischargePower": {
             "label": "BESS Discharge",
             "unit": "kW",
-            "color": "#16A34A",
+            "color": "#EC4899",  # Rose Pink
             "scale": 1.0,
             "nominal": (0.0, 2500.0),
             "tier": (0.05, 0.25),
-            "fill": True,
+            "fill": False,
         },
         "Grid.ImportPower": {
             "label": "Grid Import",
             "unit": "kW",
-            "color": "#2563EB",
+            "color": "#8B5CF6",  # Violet Purple
             "scale": 1.0,
             "nominal": (0.0, 4000.0),
             "tier": (0.05, 0.25),
-            "fill": True,
+            "fill": False,
         },
         "Grid.ExportPower": {
             "label": "Grid Export",
             "unit": "kW",
-            "color": "#7C3AED",
+            "color": "#06B6D4",  # Cyan Blue
             "scale": 1.0,
             "nominal": (0.0, 4000.0),
             "tier": (0.05, 0.25),
-            "fill": True,
-        },
-        "Grid.Voltage": {
-            "label": "Grid 33kV Voltage",
-            "unit": "kV",
-            "color": "#2563EB",  # Royal Blue
-            "scale": 1.0,
-            "nominal": (31.0, 35.0),
-            "tier": (0.30, 0.45),
+            "fill": False,
         },
         "Grid.BUS_A_Voltage": {
             "label": "Bus 433 A Voltage",
             "unit": "V",
-            "color": "#3B82F6",  # Blue
+            "color": "#3B82F6",  # Phase A: Royal Blue
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
@@ -120,7 +105,7 @@ class TimeSeriesChartCanvas(QWidget):
         "Grid.BUS_B_Voltage": {
             "label": "Bus 433 B Voltage",
             "unit": "V",
-            "color": "#8B5CF6",  # Violet
+            "color": "#A855F7",  # Phase B: Purple
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
@@ -128,26 +113,42 @@ class TimeSeriesChartCanvas(QWidget):
         "Grid.BUS_C_Voltage": {
             "label": "Bus 433 C Voltage",
             "unit": "V",
-            "color": "#EC4899",  # Pink
+            "color": "#F43F5E",  # Phase C: Coral Crimson
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
         },
-        "Network.LoadVoltage": {
-            "label": "Load Bus Voltage",
-            "unit": "V",
-            "color": "#9333EA",  # Purple
+        "Grid.Voltage": {
+            "label": "Grid 33kV Voltage",
+            "unit": "kV",
+            "color": "#1D4ED8",  # 33kV Grid: Deep Navy Blue
             "scale": 1.0,
-            "nominal": (400.0, 440.0),
-            "tier": (0.45, 0.65),
+            "nominal": (31.0, 35.0),
+            "tier": (0.30, 0.45),
         },
         "PCS.AC_Voltage": {
             "label": "PCS Bus Voltage",
             "unit": "V",
-            "color": "#F59E0B",  # Amber
+            "color": "#0D9488",  # PCS Bus: Teal
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
+        },
+        "PCS.ACVoltage": {
+            "label": "PCS Bus Voltage",
+            "unit": "V",
+            "color": "#0D9488",  # Alias
+            "scale": 1.0,
+            "nominal": (400.0, 440.0),
+            "tier": (0.45, 0.65),
+        },
+        "SOC": {
+            "label": "Battery SOC",
+            "unit": "%",
+            "color": "#15803D",  # Forest Green
+            "scale": 1.0,
+            "nominal": (45.0, 60.0),
+            "tier": (0.75, 0.95),
         },
         "Battery.Power": {
             "label": "Battery Power",
@@ -165,10 +166,18 @@ class TimeSeriesChartCanvas(QWidget):
             "nominal": (0.0, 2500.0),
             "tier": (0.05, 0.25),
         },
+        "Network.LoadVoltage": {
+            "label": "Load Bus Voltage",
+            "unit": "V",
+            "color": "#D946EF",  # Fuchsia
+            "scale": 1.0,
+            "nominal": (400.0, 440.0),
+            "tier": (0.45, 0.65),
+        },
         "Grid.Frequency": {
             "label": "Frequency",
             "unit": "Hz",
-            "color": "#0284C7",  # Sky Blue
+            "color": "#64748B",  # Slate Grey
             "scale": 1.0,
             "nominal": (49.5, 50.5),
             "tier": (0.20, 0.35),
@@ -190,6 +199,7 @@ class TimeSeriesChartCanvas(QWidget):
         self.hover_pos: QPoint | None = None
         self.hover_active: bool = False
         self.dashboard_style: bool = False
+        self.tooltip_scroll_offset: int = 0
 
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
@@ -200,9 +210,22 @@ class TimeSeriesChartCanvas(QWidget):
         self.update()
         super().mouseMoveEvent(event)
 
+    def wheelEvent(self, event):
+        if self.hover_active:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.tooltip_scroll_offset = max(0, self.tooltip_scroll_offset - 1)
+            elif delta < 0:
+                self.tooltip_scroll_offset += 1
+            self.update()
+            event.accept()
+            return
+        super().wheelEvent(event)
+
     def leaveEvent(self, event):
         self.hover_active = False
         self.hover_pos = None
+        self.tooltip_scroll_offset = 0
         self.update()
         super().leaveEvent(event)
 
@@ -224,18 +247,18 @@ class TimeSeriesChartCanvas(QWidget):
 
         is_compact = (w < 460)
 
-        # Canvas bounds (Multiple Y-axes: reserve space on Left for Power [kW] and Right for SOC [%]/Voltage [V])
+        # Canvas bounds (All Y-axes on Left: Power [MW/kW], Voltage [V], SOC [%])
         is_all_mode = (self.selected_metric == "ALL")
 
         if is_all_mode:
-            left = 32 if is_compact else 52
-            right = w - (68 if is_compact else 80)
-            top = 18 if is_compact else 28
-            bottom = h - (24 if is_compact else 38)
+            left = 106 if is_compact else 156
+            right = w - (16 if is_compact else 24)
+            top = 22 if is_compact else 28
+            bottom = h - (26 if is_compact else 38)
         else:
-            left = 42 if is_compact else 65
-            right = w - (10 if is_compact else 24)
-            top = 10 if is_compact else 25
+            left = 44 if is_compact else 68
+            right = w - (12 if is_compact else 24)
+            top = 18 if is_compact else 26
             bottom = h - (24 if is_compact else 38)
 
         chart_width = max(10, right - left)
@@ -260,20 +283,21 @@ class TimeSeriesChartCanvas(QWidget):
         # Determine which metrics to plot
         if self.selected_metric == "ALL":
             default_keys = [
-                "Network.LoadPower",
                 "Solar.ActivePower",
+                "Network.LoadPower",
                 "BESS.ChargePower",
                 "BESS.DischargePower",
                 "Grid.ImportPower",
                 "Grid.ExportPower",
-                "SOC",
+                "Grid.BUS_A_Voltage",
+                "Grid.BUS_B_Voltage",
+                "Grid.BUS_C_Voltage",
                 "Grid.Voltage",
                 "PCS.AC_Voltage",
+                "SOC",
                 "Grid.Frequency",
-                "Grid.BUS_A_Voltage",
-                "Battery.Power",
             ]
-            active_keys = [k for k in default_keys if k in self.history_data and self.history_data[k]]
+            active_keys = [k for k in default_keys if (k in self.history_data and self.history_data[k]) or (k == "PCS.AC_Voltage" and self.history_data.get("PCS.ACVoltage"))]
             if not active_keys:
                 active_keys = [k for k in self.history_data.keys() if self.history_data[k]][:8]
         else:
@@ -346,41 +370,47 @@ class TimeSeriesChartCanvas(QWidget):
                     except (ValueError, TypeError):
                         pass
 
-        # Power Axis Range (Left) - stabilized with step rounding to eliminate vertical jitter
+        # Power Axis Range (Left) - stabilized with clean round steps (e.g. 250 kW or 500 kW per tick)
         if power_vals:
-            power_min = min(power_vals)
-            power_max = max(power_vals)
-            if power_min == power_max:
-                power_min, power_max = (power_min * 0.9, power_min * 1.1)
-            else:
-                p_pad = max(100.0, (power_max - power_min) * 0.12)
-                power_min = power_min - p_pad
-                power_max = power_max + p_pad
-            power_min = math.floor(power_min / 250.0) * 250.0
-            power_max = math.ceil(power_max / 250.0) * 250.0
+            raw_p_min = min(power_vals)
+            raw_p_max = max(power_vals)
+            p_span = max(100.0, raw_p_max - raw_p_min)
+            p_step = 250.0 if p_span <= 1200 else (500.0 if p_span <= 2500 else 1000.0)
+            power_min = math.floor(raw_p_min / p_step) * p_step
+            power_max = power_min + (4 * p_step)
+            while power_max < raw_p_max:
+                power_max += p_step
         else:
-            power_min, power_max = (0.0, 5000.0)
+            power_min, power_max = (0.0, 4000.0)
         power_range = max(1e-6, power_max - power_min)
 
-        # SOC Axis Range (Right) - stabilized to 10% steps
+        # SOC Axis Range - stabilized to exact 5% or 10% steps
         if soc_vals:
-            soc_min = max(0.0, math.floor((min(soc_vals) - 5.0) / 10.0) * 10.0)
-            soc_max = min(100.0, math.ceil((max(soc_vals) + 5.0) / 10.0) * 10.0)
-            if soc_min >= soc_max:
-                soc_min, soc_max = (0.0, 100.0)
+            raw_s_min = max(0.0, min(soc_vals))
+            raw_s_max = min(100.0, max(soc_vals))
+            s_span = max(10.0, raw_s_max - raw_s_min)
+            s_step = 5.0 if s_span <= 20.0 else 10.0
+            soc_min = max(0.0, math.floor(raw_s_min / s_step) * s_step)
+            soc_max = min(100.0, soc_min + (4 * s_step))
+            if soc_max < raw_s_max:
+                soc_max = min(100.0, math.ceil(raw_s_max / s_step) * s_step)
+                soc_min = max(0.0, soc_max - (4 * s_step))
         else:
             soc_min, soc_max = (0.0, 100.0)
         soc_range = max(1e-6, soc_max - soc_min)
 
-        # Voltage Axis Range - stabilized to 5V steps
+        # Voltage Axis Range - stabilized to clean 5V steps
         if volt_vals:
-            v_low = min(volt_vals)
-            v_high = max(volt_vals)
-            v_pad = max(5.0, (v_high - v_low) * 0.15) if v_low != v_high else 10.0
-            volt_min = math.floor((v_low - v_pad) / 5.0) * 5.0
-            volt_max = math.ceil((v_high + v_pad) / 5.0) * 5.0
+            raw_v_min = min(volt_vals)
+            raw_v_max = max(volt_vals)
+            v_span = max(10.0, raw_v_max - raw_v_min)
+            v_step = 5.0 if v_span <= 20.0 else 10.0
+            volt_min = math.floor(raw_v_min / v_step) * v_step
+            volt_max = volt_min + (4 * v_step)
+            while volt_max < raw_v_max:
+                volt_max += v_step
         else:
-            volt_min, volt_max = (380.0, 440.0)
+            volt_min, volt_max = (400.0, 440.0)
         volt_range = max(1e-6, volt_max - volt_min)
 
         # Frequency Axis Range - stabilized to 0.1 Hz steps
@@ -434,42 +464,60 @@ class TimeSeriesChartCanvas(QWidget):
             p.drawLine(left, int(y), right, int(y))
 
             if is_all_mode:
-                # 1. Left Y-Axis: Power (MW on dashboard, kW otherwise)
+                # Column 1 (Leftmost): Power (MW on dashboard, kW otherwise)
                 val_power = power_min + frac * (power_max - power_min)
                 p.setPen(QColor("#D97706"))
-                if self.dashboard_style:
-                    p.drawText(2, int(y + 4), f"{val_power / 1000.0:.2f}")
-                elif is_compact:
-                    p.drawText(2, int(y + 4), f"{val_power:.0f}")
-                else:
-                    p.drawText(4, int(y + 4), f"{val_power:.0f} kW")
+                str_power = f"{val_power / 1000.0:.2f}" if self.dashboard_style else (f"{val_power:.0f}" if is_compact else f"{val_power:.0f} kW")
+                p.drawText(QRect(2, int(y - 8), (28 if is_compact else 44), 16), Qt.AlignRight | Qt.AlignVCenter, str_power)
 
-                # 2. Right Y-Axis Column 1: Voltage (V)
+                # Column 2 (Middle Left): Voltage (V)
                 val_volt = volt_min + frac * (volt_max - volt_min)
                 p.setPen(QColor("#2563EB"))  # Royal Blue for Voltage
-                p.drawText(right + (7 if is_compact else 10), int(y + 4), f"{val_volt:.0f}V" if is_compact else f"{val_volt:.0f} V")
+                str_volt = f"{val_volt:.0f}V" if is_compact else f"{val_volt:.0f} V"
+                p.drawText(QRect((34 if is_compact else 52), int(y - 8), (32 if is_compact else 46), 16), Qt.AlignRight | Qt.AlignVCenter, str_volt)
 
-                # 3. Right Y-Axis Column 2: SOC (%)
+                # Column 3 (Inner Left): Battery SOC (%)
                 val_soc = soc_min + frac * (soc_max - soc_min)
                 p.setPen(QColor("#16A34A"))  # Green for SOC
-                p.drawText(right + (36 if is_compact else 44), int(y + 4), f"{val_soc:.0f}%")
+                str_soc = f"{val_soc:.0f}%"
+                p.drawText(QRect((70 if is_compact else 104), int(y - 8), (30 if is_compact else 44), 16), Qt.AlignRight | Qt.AlignVCenter, str_soc)
+
+                # Small tick mark extending from left axis line
+                p.setPen(QPen(QColor("#CBD5E1"), 1.0))
+                p.drawLine(left - 3, int(y), left, int(y))
             else:
                 val_at_y = min_val + frac * (max_val - min_val)
                 p.setPen(QColor("#64748B"))
                 if is_compact and len(unit) > 2:
-                    p.drawText(2, int(y + 4), f"{val_at_y:.0f}")
+                    p.drawText(QRect(2, int(y - 8), left - 6, 16), Qt.AlignRight | Qt.AlignVCenter, f"{val_at_y:.0f}")
                 else:
-                    p.drawText(2 if is_compact else 8, int(y + 4), f"{val_at_y:.1f} {unit}")
+                    p.drawText(QRect(2, int(y - 8), left - 6, 16), Qt.AlignRight | Qt.AlignVCenter, f"{val_at_y:.1f} {unit}")
 
-        # Top Axis Headers in ALL mode (Left=Power, Right=Voltage & SOC)
+                p.setPen(QPen(QColor("#CBD5E1"), 1.0))
+                p.drawLine(left - 3, int(y), left, int(y))
+
+        # Top Axis Headers in ALL mode (ALL columns neatly arranged on Left)
         if is_all_mode:
-            p.setFont(QFont("Segoe UI", 6 if is_compact else 7, QFont.Bold))
+            p.setFont(QFont("Segoe UI", 6.5 if is_compact else 7, QFont.Bold))
             p.setPen(QColor("#D97706"))
-            p.drawText(2, top - 4, "MW" if self.dashboard_style else "kW (Power)")
+            p.drawText(QRect(2, top - 18, (30 if is_compact else 46), 14), Qt.AlignLeft | Qt.AlignVCenter, "MW" if self.dashboard_style else "Power")
             p.setPen(QColor("#2563EB"))
-            p.drawText(right + (4 if is_compact else 8), top - 4, "V (Volt)")
+            p.drawText(QRect((34 if is_compact else 52), top - 18, (34 if is_compact else 48), 14), Qt.AlignLeft | Qt.AlignVCenter, "Volt (V)")
             p.setPen(QColor("#16A34A"))
-            p.drawText(right + (34 if is_compact else 42), top - 4, "% (SOC)")
+            p.drawText(QRect((70 if is_compact else 104), top - 18, (32 if is_compact else 46), 14), Qt.AlignLeft | Qt.AlignVCenter, "SOC (%)")
+            p.setFont(font_axis)
+
+            # Subtle column divider lines on the left side
+            p.setPen(QPen(QColor("#F1F5F9"), 1, Qt.SolidLine))
+            div1_x = 32 if is_compact else 50
+            div2_x = 68 if is_compact else 101
+            p.drawLine(div1_x, top - 12, div1_x, bottom)
+            p.drawLine(div2_x, top - 12, div2_x, bottom)
+        else:
+            p.setFont(QFont("Segoe UI", 6.5 if is_compact else 7, QFont.Bold))
+            p.setPen(QColor("#475569"))
+            header_single = single_cfg.get("label", self.selected_metric)
+            p.drawText(QRect(2, top - 18, left + 40, 14), Qt.AlignLeft | Qt.AlignVCenter, f"{header_single} ({unit})")
             p.setFont(font_axis)
 
         # Vertical time grid lines
@@ -504,19 +552,20 @@ class TimeSeriesChartCanvas(QWidget):
             if is_compact:
                 p.drawText(int(x - 12), bottom + 15, label)
             else:
+                draw_cx = max(left, min(w - 36, int(x - 16)))
+                draw_lx = max(left, min(w - 32, int(x - 14)))
                 if clock_str:
-                    p.drawText(int(x - 16), bottom + 16, clock_str)
-                    p.drawText(int(x - 14), bottom + 28, f"({label})")
+                    p.drawText(draw_cx, bottom + 16, clock_str)
+                    p.drawText(draw_lx, bottom + 28, f"({label})")
                 else:
-                    p.drawText(int(x - 14), bottom + 18, label)
+                    p.drawText(draw_lx, bottom + 18, label)
 
-        # Baseline axis borders
+        # Chart frame borders (clean left & bottom axes, subtle right & top frame)
         p.setPen(QPen(QColor("#CBD5E1"), 1.2))
         p.drawLine(left, bottom, right, bottom)
         p.drawLine(left, top, left, bottom)
-        if is_all_mode:
-            p.setPen(QPen(QColor("#A7F3D0"), 1.2))
-            p.drawLine(right, top, right, bottom)
+        p.setPen(QPen(QColor("#E2E8F0"), 1.0))
+        p.drawLine(right, top, right, bottom)
 
         # Store per-metric scale for exact highlight dot positioning
         metric_scales = {}
@@ -581,49 +630,162 @@ class TimeSeriesChartCanvas(QWidget):
                 curve_points.append(QPoint(int(px), int(py)))
             return cfg, QColor(cfg["color"]), curve_points
 
-        # Filled power bands first, then strokes on top
-        for metric_key in active_keys:
-            cfg, line_color, curve_points = _curve_for(metric_key)
-            if not cfg or len(curve_points) < 2:
-                continue
-            if not (is_all_mode and cfg.get("fill")):
-                continue
-            fill_path = QPainterPath()
-            fill_path.moveTo(curve_points[0].x(), bottom)
-            for pt in curve_points:
-                fill_path.lineTo(pt)
-            fill_path.lineTo(curve_points[-1].x(), bottom)
-            fill_path.closeSubpath()
-            fill_color = QColor(line_color)
-            fill_color.setAlpha(70 if self.dashboard_style else 46)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(fill_color))
-            p.drawPath(fill_path)
+        # -----------------------------------------------------------------
+        # SMOOTH SPLINE HELPER
+        # -----------------------------------------------------------------
+        def _build_spline_path(pts: list[QPoint]) -> QPainterPath:
+            path = QPainterPath()
+            if not pts:
+                return path
+            path.moveTo(pts[0])
+            if len(pts) == 1:
+                return path
+            if len(pts) == 2:
+                path.lineTo(pts[1])
+                return path
 
+            for i in range(len(pts) - 1):
+                p0 = pts[max(0, i - 1)]
+                p1 = pts[i]
+                p2 = pts[i + 1]
+                p3 = pts[min(len(pts) - 1, i + 2)]
+
+                # Catmull-Rom spline control points
+                c1_x = p1.x() + (p2.x() - p0.x()) / 6.0
+                c1_y = p1.y() + (p2.y() - p0.y()) / 6.0
+                c2_x = p2.x() - (p3.x() - p1.x()) / 6.0
+                c2_y = p2.y() - (p3.y() - p1.y()) / 6.0
+
+                path.cubicTo(QPoint(int(c1_x), int(c1_y)), QPoint(int(c2_x), int(c2_y)), p2)
+            return path
+
+        # -----------------------------------------------------------------
+        # 1. ONLY SOLAR POWER GETS AN AREA-SPLINE (ALL OTHERS: NO FILL!)
+        # -----------------------------------------------------------------
+        if "Solar.ActivePower" in active_keys:
+            solar_cfg, solar_col, solar_pts = _curve_for("Solar.ActivePower")
+            if solar_cfg and len(solar_pts) >= 2:
+                solar_spline = _build_spline_path(solar_pts)
+
+                # Baseline for Solar power is strictly 0 kW (NOT negative kW at bottom of chart!)
+                if is_all_mode:
+                    zero_power_y = min(bottom, max(top, bottom - (0.0 - power_min) / power_range * chart_height))
+                else:
+                    zero_power_y = min(bottom, max(top, bottom - (0.0 - min_val) / val_range * chart_height))
+
+                solar_area = QPainterPath(solar_spline)
+                solar_area.lineTo(solar_pts[-1].x(), int(zero_power_y))
+                solar_area.lineTo(solar_pts[0].x(), int(zero_power_y))
+                solar_area.closeSubpath()
+
+                min_solar_y = min(pt.y() for pt in solar_pts)
+                grad = QLinearGradient(0, min_solar_y, 0, int(zero_power_y))
+                grad.setColorAt(0.0, QColor(249, 115, 22, 115))  # Radiant Sun Orange
+                grad.setColorAt(0.5, QColor(249, 115, 22, 45))
+                grad.setColorAt(1.0, QColor(249, 115, 22, 0))    # Zero at 0 kW baseline
+
+                p.setPen(Qt.NoPen)
+                p.setBrush(QBrush(grad))
+                p.drawPath(solar_area)
+
+        # -----------------------------------------------------------------
+        # 2. DRAW LINE/SPLINE STROKES FOR ALL METRICS (CLEAN LINES, NO FILL!)
+        # -----------------------------------------------------------------
         for metric_key in active_keys:
             cfg, line_color, curve_points = _curve_for(metric_key)
-            if not cfg:
+            if not cfg or not curve_points:
                 continue
+
             if len(curve_points) >= 2:
-                p.setPen(QPen(line_color, 2.0 if is_compact else 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                p.drawPolyline(curve_points)
+                stroke_w = 2.4 if metric_key == "Solar.ActivePower" else (1.9 if is_compact else 2.1)
+                p.setPen(QPen(line_color, stroke_w, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
 
+                if metric_key == "Solar.ActivePower":
+                    p.drawPath(_build_spline_path(curve_points))
+                else:
+                    p.drawPolyline(curve_points)
+
+                # End dot on curve
                 last_pt = curve_points[-1]
                 p.setBrush(QBrush(line_color))
+                p.setPen(Qt.NoPen)
                 p.drawEllipse(last_pt, 3, 3)
                 p.setBrush(QBrush(QColor("#FFFFFF")))
                 p.drawEllipse(last_pt, 1, 1)
             elif len(curve_points) == 1:
                 p.setBrush(QBrush(line_color))
+                p.setPen(Qt.NoPen)
                 p.drawEllipse(curve_points[0], 4, 4)
 
-
-        # Floating tooltip card & inspection (Interactive Hover or Pinned Live)
+        # -----------------------------------------------------------------
+        # 3. TOOLTIP & TELEMETRY (SUBTLE MINI-PILL IN LIVE, 2-COL ON HOVER)
+        # -----------------------------------------------------------------
         has_any_pts = any(bool(self.history_data.get(k)) for k in active_keys)
         if has_any_pts:
             is_hover = bool(self.hover_active and self.hover_pos and left <= self.hover_pos.x() <= right)
 
-            if is_hover:
+            if not is_hover:
+                # -------------------------------------------------------------
+                # SUBTLE MINI LIVE PILL (Takes almost zero space, non-intrusive)
+                # -------------------------------------------------------------
+                target_t = anchor_ts
+                try:
+                    clock_str = datetime.fromtimestamp(target_t, tz=IST).strftime("%H:%M:%S")
+                except Exception:
+                    clock_str = "--:--:--"
+
+                solar_val = "--"
+                load_val = "--"
+                soc_val = "--"
+                if "Solar.ActivePower" in self.history_data and self.history_data["Solar.ActivePower"]:
+                    v = self.history_data["Solar.ActivePower"][-1].get("value")
+                    if v is not None:
+                        solar_val = f"{float(v) / 1000.0:.2f} MW" if self.dashboard_style else f"{float(v):.0f} kW"
+                if "Network.LoadPower" in self.history_data and self.history_data["Network.LoadPower"]:
+                    v = self.history_data["Network.LoadPower"][-1].get("value")
+                    if v is not None:
+                        load_val = f"{float(v) / 1000.0:.2f} MW" if self.dashboard_style else f"{float(v):.0f} kW"
+                if "SOC" in self.history_data and self.history_data["SOC"]:
+                    v = self.history_data["SOC"][-1].get("value")
+                    if v is not None:
+                        soc_val = f"{float(v):.0f}%"
+
+                pill_w = 260 if not is_compact else 155
+                pill_h = 18
+                pill_x = right - pill_w
+                pill_y = top - 22  # Above chart canvas curves in header space
+
+                p.setPen(QPen(QColor("#334155"), 0.8))
+                p.setBrush(QBrush(QColor(15, 23, 42, 215)))
+                p.drawRoundedRect(pill_x, pill_y, pill_w, pill_h, 9, 9)
+
+                p.setPen(Qt.NoPen)
+                p.setBrush(QBrush(QColor("#10B981")))
+                p.drawEllipse(pill_x + 8, pill_y + 5, 6, 6)
+
+                p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
+                p.setPen(QColor("#10B981"))
+                p.drawText(pill_x + 18, pill_y + 13, "LIVE")
+
+                p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
+                p.setPen(QColor("#94A3B8"))
+                p.drawText(pill_x + 44, pill_y + 13, clock_str)
+
+                if not is_compact:
+                    p.setPen(QColor("#475569"))
+                    p.drawText(pill_x + 90, pill_y + 13, "•")
+                    p.setPen(QColor("#F97316"))
+                    p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
+                    p.drawText(pill_x + 98, pill_y + 13, f"Solar: {solar_val}")
+
+                    p.setPen(QColor("#475569"))
+                    p.drawText(pill_x + 172, pill_y + 13, "•")
+                    p.setPen(QColor("#15803D"))
+                    p.drawText(pill_x + 180, pill_y + 13, f"SOC: {soc_val}")
+            else:
+                # -------------------------------------------------------------
+                # INTERACTIVE HOVER CROSSHAIR & COMPACT 2-COLUMN TELEMETRY CARD
+                # -------------------------------------------------------------
                 hx = self.hover_pos.x()
                 frac_x = max(0.0, min(1.0, (hx - left) / chart_width))
                 target_t = cutoff_ts + frac_x * self.window_seconds
@@ -634,20 +796,17 @@ class TimeSeriesChartCanvas(QWidget):
                     clock_str = "--:--:--"
 
                 offset_sec = int(target_t - anchor_ts)
-                if abs(offset_sec) < 5:
-                    rel_str = "Now"
-                else:
-                    rel_str = f"{offset_sec // 60}m {abs(offset_sec) % 60:02d}s"
+                rel_str = "Now" if abs(offset_sec) < 5 else f"{offset_sec // 60}m {abs(offset_sec) % 60:02d}s"
 
                 header_text = f"⏱ {clock_str}  ({rel_str})"
                 header_color = QColor("#38BDF8")
 
-                # 1. Vertical dashed crosshair line
+                # Vertical crosshair line
                 crosshair_pen = QPen(QColor(100, 116, 139, 180), 1.2, Qt.DashLine)
                 p.setPen(crosshair_pen)
                 p.drawLine(hx, top, hx, bottom)
 
-                # 2. Timestamp badge at bottom axis
+                # Timestamp badge at bottom axis
                 badge_w = 64
                 badge_h = 16
                 badge_x = max(left, min(right - badge_w, hx - badge_w // 2))
@@ -658,125 +817,203 @@ class TimeSeriesChartCanvas(QWidget):
                 p.setFont(QFont("Segoe UI", 7, QFont.Bold))
                 p.drawText(QRect(badge_x, bottom + 2, badge_w, badge_h), Qt.AlignCenter, clock_str)
 
-            else:
-                # Default LIVE pinned display (No hover needed!)
-                target_t = anchor_ts
-                try:
-                    clock_str = datetime.fromtimestamp(target_t, tz=IST).strftime("%H:%M:%S")
-                except Exception:
-                    clock_str = "--:--:--"
-
-                header_text = f"🟢 LIVE  {clock_str}  (Current)"
-                header_color = QColor("#10B981")
-                hx = right
-
-            # 3. Find closest data points and draw glowing highlight dots on curves
-            tooltip_items = []
-            for metric_key in active_keys:
-                pts = self.history_data.get(metric_key, [])
-                if not pts:
-                    continue
-                cfg = self.METRIC_CONFIG.get(metric_key, {
-                    "label": metric_key,
-                    "unit": "",
-                    "color": "#3B82F6",
-                    "scale": 1.0,
-                    "nominal": (0.0, 100.0),
-                })
-                line_color = QColor(cfg["color"])
-
-                # Find closest data point to target_t within cutoff
-                best_pt = None
-                min_dt = float("inf")
-                for pt in pts:
-                    t = pt.get("time")
-                    if t is None:
+                # Collect closest data points
+                tooltip_items = []
+                for metric_key in active_keys:
+                    pts = self.history_data.get(metric_key, [])
+                    if not pts:
                         continue
-                    try:
-                        tf = float(t)
-                    except (ValueError, TypeError):
-                        continue
-                    if tf < cutoff_ts:
-                        continue
-                    dt_diff = abs(tf - target_t)
-                    if dt_diff < min_dt:
-                        min_dt = dt_diff
-                        best_pt = pt
+                    cfg = self.METRIC_CONFIG.get(metric_key, {
+                        "label": metric_key,
+                        "unit": "",
+                        "color": "#3B82F6",
+                        "scale": 1.0,
+                        "nominal": (0.0, 100.0),
+                    })
+                    line_color = QColor(cfg["color"])
 
-                if best_pt is not None and best_pt.get("value") is not None:
-                    try:
-                        vf = float(best_pt["value"])
-                        pt_t = float(best_pt["time"])
+                    best_pt = None
+                    min_dt = float("inf")
+                    for pt in pts:
+                        t = pt.get("time")
+                        if t is None:
+                            continue
+                        try:
+                            tf = float(t)
+                        except (ValueError, TypeError):
+                            continue
+                        if tf < cutoff_ts:
+                            continue
+                        dt_diff = abs(tf - target_t)
+                        if dt_diff < min_dt:
+                            min_dt = dt_diff
+                            best_pt = pt
 
-                        dt_pt = pt_t - cutoff_ts
-                        pt_frac_x = min(1.0, max(0.0, dt_pt / self.window_seconds))
-                        pt_px = left + pt_frac_x * chart_width
+                    if best_pt is not None and best_pt.get("value") is not None:
+                        try:
+                            vf = float(best_pt["value"])
+                            pt_t = float(best_pt["time"])
+                            dt_pt = pt_t - cutoff_ts
+                            pt_frac_x = min(1.0, max(0.0, dt_pt / self.window_seconds))
+                            pt_px = left + pt_frac_x * chart_width
 
-                        if is_all_mode:
-                            m_min, m_range = metric_scales.get(metric_key, (0.0, 100.0))
-                            vf_plot = (vf / 33.0) * 433.0 if cfg.get("unit") == "kV" and vf > 0 else vf
-                            norm_y = min(1.0, max(0.0, (vf_plot - m_min) / m_range))
-                            pt_py = bottom - norm_y * chart_height
-                        else:
-                            pt_py = bottom - min(1.0, max(0.0, (vf - min_val) / val_range)) * chart_height
+                            if is_all_mode:
+                                m_min, m_range = metric_scales.get(metric_key, (0.0, 100.0))
+                                vf_plot = (vf / 33.0) * 433.0 if cfg.get("unit") == "kV" and vf > 0 else vf
+                                norm_y = min(1.0, max(0.0, (vf_plot - m_min) / m_range))
+                                pt_py = bottom - norm_y * chart_height
+                            else:
+                                pt_py = bottom - min(1.0, max(0.0, (vf - min_val) / val_range)) * chart_height
 
-                        # Draw highlight dot on curve
-                        p.setPen(QPen(QColor("#FFFFFF"), 1.8))
-                        p.setBrush(QBrush(line_color))
-                        p.drawEllipse(QPoint(int(pt_px), int(pt_py)), 5, 5)
+                            # Draw glowing dot on curve
+                            p.setPen(QPen(QColor("#FFFFFF"), 1.8))
+                            p.setBrush(QBrush(line_color))
+                            p.drawEllipse(QPoint(int(pt_px), int(pt_py)), 4, 4)
 
-                        tooltip_items.append((cfg["label"], f"{vf:.2f} {cfg['unit']}", line_color))
-                    except (ValueError, TypeError):
-                        pass
+                            SHORT_NAMES = {
+                                "Network.LoadPower": "Load",
+                                "Solar.ActivePower": "Solar",
+                                "BESS.ChargePower": "BESS Chg",
+                                "BESS.DischargePower": "BESS Dis",
+                                "Grid.ImportPower": "Grid Imp",
+                                "Grid.ExportPower": "Grid Exp",
+                                "SOC": "SOC",
+                                "Grid.BUS_A_Voltage": "Bus A",
+                                "Grid.BUS_B_Voltage": "Bus B",
+                                "Grid.BUS_C_Voltage": "Bus C",
+                                "Grid.Voltage": "Grid 33k",
+                                "PCS.AC_Voltage": "PCS Bus",
+                                "Network.LoadVoltage": "Load Bus",
+                                "Battery.Power": "BESS Pwr",
+                                "PCS.ActivePowerOutput": "PCS Pwr",
+                                "Grid.Frequency": "Freq",
+                            }
+                            short_lbl = SHORT_NAMES.get(metric_key, cfg["label"].replace(" Voltage", "").replace(" Generation", "").replace("Power", "").strip()[:8])
+                            if self.dashboard_style and cfg.get("unit") == "kW":
+                                tooltip_items.append((short_lbl, f"{vf / 1000.0:.2f} MW", line_color))
+                            else:
+                                tooltip_items.append((short_lbl, f"{vf:.1f} {cfg['unit']}", line_color))
+                        except (ValueError, TypeError):
+                            pass
 
-            # 4. Floating tooltip card
-            if tooltip_items:
-                card_w = 175 if not is_compact else 155
-                card_h = 24 + len(tooltip_items) * 16 + 6
+                # Draw 2-column compact tooltip card (subtle, non-intrusive)
+                if tooltip_items:
+                    use_two_col = (len(tooltip_items) > 5 and not is_compact)
+                    if use_two_col:
+                        half = (len(tooltip_items) + 1) // 2
+                        all_col1 = tooltip_items[:half]
+                        all_col2 = tooltip_items[half:]
+                        total_rows = max(len(all_col1), len(all_col2))
+                        max_visible_rows = 5
+                        max_scroll = max(0, total_rows - max_visible_rows)
+                        scroll_idx = max(0, min(self.tooltip_scroll_offset, max_scroll))
+                        col1 = all_col1[scroll_idx : scroll_idx + max_visible_rows]
+                        col2 = all_col2[scroll_idx : scroll_idx + max_visible_rows]
+                        disp_rows = max(len(col1), len(col2))
+                        card_w = 268
+                        card_h = 24 + disp_rows * 14 + 6
+                    else:
+                        total_rows = len(tooltip_items)
+                        max_visible_rows = 6
+                        max_scroll = max(0, total_rows - max_visible_rows)
+                        scroll_idx = max(0, min(self.tooltip_scroll_offset, max_scroll))
+                        disp_items = tooltip_items[scroll_idx : scroll_idx + max_visible_rows]
+                        card_w = 165 if not is_compact else 145
+                        card_h = 24 + len(disp_items) * 14 + 6
 
-                if is_hover:
-                    # Position card dynamically to avoid clipping edges
                     if hx + 15 + card_w <= right:
                         card_x = hx + 15
                     else:
                         card_x = max(left + 5, hx - card_w - 15)
-                    card_y = max(top + 5, min(bottom - card_h - 5, self.hover_pos.y() - 15))
-                else:
-                    # Position card gracefully in upper-right quadrant for live monitoring
-                    card_x = max(left + 8, min(right - card_w - 18, right - card_w - 20))
-                    card_y = top + 8
+                    card_y = max(top + 4, min(bottom - card_h - 4, self.hover_pos.y() - card_h // 2))
 
-                # Background card
-                p.setPen(QPen(QColor("#334155"), 1.2))
-                p.setBrush(QBrush(QColor(15, 23, 42, 235)))
-                p.drawRoundedRect(card_x, card_y, card_w, card_h, 6, 6)
+                    p.setPen(QPen(QColor("#334155"), 1.0))
+                    p.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                    p.drawRoundedRect(card_x, card_y, card_w, card_h, 6, 6)
 
-                # Card Header with clock and relative delta
-                p.setFont(QFont("Segoe UI", 7.5 if not is_compact else 7, QFont.Bold))
-                p.setPen(header_color)
-                p.drawText(card_x + 8, card_y + 14, header_text)
-                p.setPen(QPen(QColor("#334155"), 0.8))
-                p.drawLine(card_x + 6, card_y + 18, card_x + card_w - 6, card_y + 18)
+                    # Card Header
+                    p.setFont(QFont("Segoe UI", 7, QFont.Bold))
+                    p.setPen(header_color)
+                    p.drawText(card_x + 8, card_y + 14, header_text)
+                    if max_scroll > 0:
+                        p.setPen(QColor("#64748B"))
+                        p.setFont(QFont("Segoe UI", 6))
+                        p.drawText(card_x + card_w - 48, card_y + 14, "▲▼ scroll")
 
-                # Metric rows
-                row_y = card_y + 31
-                for lbl, val_str, col in tooltip_items:
-                    # Color bullet
-                    p.setPen(col)
-                    p.setFont(QFont("Segoe UI", 8, QFont.Bold))
-                    p.drawText(card_x + 8, row_y, "●")
+                    p.setPen(QPen(QColor("#334155"), 0.8))
+                    p.drawLine(card_x + 6, card_y + 18, card_x + card_w - 6, card_y + 18)
 
-                    # Label
-                    p.setFont(QFont("Segoe UI", 7 if not is_compact else 6.5, QFont.Normal))
-                    p.setPen(QColor("#CBD5E1"))
-                    p.drawText(card_x + 18, row_y, lbl[:17])
+                    if use_two_col:
+                        # Subtle vertical divider between columns
+                        mid_x = card_x + card_w // 2
+                        p.setPen(QPen(QColor("#1E293B"), 0.8))
+                        p.drawLine(mid_x, card_y + 22, mid_x, card_y + card_h - 4)
 
-                    # Value
-                    p.setFont(QFont("Segoe UI", 7 if not is_compact else 6.5, QFont.Bold))
-                    p.setPen(QColor("#FFFFFF"))
-                    p.drawText(QRect(card_x + 20, row_y - 10, card_w - 28, 14), Qt.AlignRight | Qt.AlignVCenter, val_str)
+                        # Column 1
+                        c1_w = (card_w // 2) - 10
+                        for idx, (lbl, val_str, col) in enumerate(col1):
+                            ry = card_y + 30 + idx * 14
+                            p.setPen(col)
+                            p.setFont(QFont("Segoe UI", 7.5, QFont.Bold))
+                            p.drawText(card_x + 8, ry, "●")
 
-                    row_y += 16
+                            p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
+                            p.setPen(QColor("#94A3B8"))
+                            p.drawText(card_x + 18, ry, lbl)
+
+                            p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
+                            p.setPen(QColor("#FFFFFF"))
+                            p.drawText(QRect(card_x + 58, ry - 9, c1_w - 52, 13), Qt.AlignRight | Qt.AlignVCenter, val_str)
+
+                        # Column 2
+                        c2_w = (card_w // 2) - 10
+                        for idx, (lbl, val_str, col) in enumerate(col2):
+                            ry = card_y + 30 + idx * 14
+                            p.setPen(col)
+                            p.setFont(QFont("Segoe UI", 7.5, QFont.Bold))
+                            p.drawText(mid_x + 6, ry, "●")
+
+                            p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
+                            p.setPen(QColor("#94A3B8"))
+                            p.drawText(mid_x + 16, ry, lbl)
+
+                            p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
+                            p.setPen(QColor("#FFFFFF"))
+                            p.drawText(QRect(mid_x + 56, ry - 9, c2_w - 52, 13), Qt.AlignRight | Qt.AlignVCenter, val_str)
+
+                        # Scrollbar track if scrollable
+                        if max_scroll > 0:
+                            track_y = card_y + 22
+                            track_h = disp_rows * 14 + 4
+                            thumb_h = max(8, int(track_h * max_visible_rows / total_rows))
+                            thumb_y = track_y + int((track_h - thumb_h) * scroll_idx / max_scroll)
+                            p.setPen(Qt.NoPen)
+                            p.setBrush(QBrush(QColor("#475569")))
+                            p.drawRoundedRect(card_x + card_w - 4, thumb_y, 2, thumb_h, 1, 1)
+                    else:
+                        row_y = card_y + 30
+                        for lbl, val_str, col in disp_items:
+                            p.setPen(col)
+                            p.setFont(QFont("Segoe UI", 8, QFont.Bold))
+                            p.drawText(card_x + 8, row_y, "●")
+
+                            p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
+                            p.setPen(QColor("#94A3B8"))
+                            p.drawText(card_x + 18, row_y, lbl)
+
+                            p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
+                            p.setPen(QColor("#FFFFFF"))
+                            p.drawText(QRect(card_x + 60, row_y - 9, card_w - 68, 13), Qt.AlignRight | Qt.AlignVCenter, val_str)
+                            row_y += 14
+
+                        if max_scroll > 0:
+                            track_y = card_y + 22
+                            track_h = len(disp_items) * 14 + 4
+                            thumb_h = max(8, int(track_h * max_visible_rows / total_rows))
+                            thumb_y = track_y + int((track_h - thumb_h) * scroll_idx / max_scroll)
+                            p.setPen(Qt.NoPen)
+                            p.setBrush(QBrush(QColor("#475569")))
+                            p.drawRoundedRect(card_x + card_w - 4, thumb_y, 2, thumb_h, 1, 1)
 
 
 class TimeSeriesWidget(QFrame):
@@ -787,8 +1024,8 @@ class TimeSeriesWidget(QFrame):
 
     METRIC_FILTERS = [
         ("All Trends (Overview)", "ALL"),
-        ("Load (kW)", "Network.LoadPower"),
         ("Solar Generation (kW)", "Solar.ActivePower"),
+        ("Load (kW)", "Network.LoadPower"),
         ("BESS Charge (kW)", "BESS.ChargePower"),
         ("BESS Discharge (kW)", "BESS.DischargePower"),
         ("Grid Import (kW)", "Grid.ImportPower"),
@@ -806,16 +1043,19 @@ class TimeSeriesWidget(QFrame):
     ]
 
     DASHBOARD_LEGEND = [
-        ("Network.LoadPower", "Load", "#F59E0B"),
-        ("Solar.ActivePower", "Solar Generation", "#FB923C"),
-        ("BESS.ChargePower", "BESS Charge", "#22C55E"),
-        ("BESS.DischargePower", "BESS Discharge", "#16A34A"),
-        ("Grid.ImportPower", "Grid Import", "#2563EB"),
-        ("Grid.ExportPower", "Grid Export", "#7C3AED"),
-        ("SOC", "SOC", "#16A34A"),
-        ("Grid.Voltage", "Grid Voltage", "#2563EB"),
-        ("PCS.AC_Voltage", "PCS Voltage", "#F59E0B"),
-        ("Grid.Frequency", "Frequency", "#0284C7"),
+        ("Solar.ActivePower", "Solar", "#F97316"),
+        ("Network.LoadPower", "Load", "#6366F1"),
+        ("BESS.ChargePower", "BESS Chg", "#10B981"),
+        ("BESS.DischargePower", "BESS Dis", "#EC4899"),
+        ("Grid.ImportPower", "Grid Imp", "#8B5CF6"),
+        ("Grid.ExportPower", "Grid Exp", "#06B6D4"),
+        ("Grid.BUS_A_Voltage", "Bus 433 A", "#3B82F6"),
+        ("Grid.BUS_B_Voltage", "Bus 433 B", "#A855F7"),
+        ("Grid.BUS_C_Voltage", "Bus 433 C", "#F43F5E"),
+        ("Grid.Voltage", "Grid 33kV", "#1D4ED8"),
+        ("PCS.AC_Voltage", "PCS Bus", "#0D9488"),
+        ("SOC", "Battery SOC", "#15803D"),
+        ("Grid.Frequency", "Freq", "#64748B"),
     ]
 
     def __init__(self, simulator=None, parent=None, compact: bool = False, dashboard: bool = False):
@@ -919,7 +1159,7 @@ class TimeSeriesWidget(QFrame):
             layout.addWidget(self.canvas, 1)
 
             legend_row = QHBoxLayout()
-            legend_row.setSpacing(10)
+            legend_row.setSpacing(6)
             self.legend_labels = {}
             for key, name, color in self.DASHBOARD_LEGEND:
                 item_box = QHBoxLayout()
@@ -1069,8 +1309,45 @@ class TimeSeriesWidget(QFrame):
 
             layout.addLayout(header_row)
 
-            # Filter pills row
-            filter_row = QHBoxLayout()
+            # Filter pills in sleek horizontal scroll area (never forces parent window wider than screen)
+            self.filter_scroll = QScrollArea()
+            self.filter_scroll.setFixedHeight(34)
+            self.filter_scroll.setWidgetResizable(True)
+            self.filter_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.filter_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.filter_scroll.setFrameShape(QFrame.NoFrame)
+            self.filter_scroll.setStyleSheet("""
+                QScrollArea {
+                    background: transparent;
+                    border: none;
+                }
+                QScrollArea > QWidget > QWidget {
+                    background: transparent;
+                }
+                QScrollBar:horizontal {
+                    height: 3px;
+                    background: #F1F5F9;
+                    border-radius: 1px;
+                }
+                QScrollBar::handle:horizontal {
+                    background: #CBD5E1;
+                    border-radius: 1px;
+                    min-width: 24px;
+                }
+                QScrollBar::handle:horizontal:hover {
+                    background: #94A3B8;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                    width: 0px;
+                }
+            """)
+            if self.filter_scroll.viewport():
+                self.filter_scroll.viewport().setStyleSheet("background: transparent;")
+
+            filter_container = QWidget()
+            filter_container.setStyleSheet("background: transparent;")
+            filter_row = QHBoxLayout(filter_container)
+            filter_row.setContentsMargins(0, 0, 0, 0)
             filter_row.setSpacing(5)
 
             self.button_group = QButtonGroup(self)
@@ -1107,41 +1384,78 @@ class TimeSeriesWidget(QFrame):
                 filter_row.addWidget(btn)
 
             filter_row.addStretch()
-            layout.addLayout(filter_row)
+            self.filter_scroll.setWidget(filter_container)
+
+            # Smooth mouse wheel horizontal scrolling
+            def _filter_wheel(event):
+                delta = event.angleDelta().y() or event.angleDelta().x()
+                sb = self.filter_scroll.horizontalScrollBar()
+                sb.setValue(sb.value() - int(delta / 2))
+                event.accept()
+            self.filter_scroll.wheelEvent = _filter_wheel
+
+            layout.addWidget(self.filter_scroll)
 
             # Chart Canvas
             self.canvas = TimeSeriesChartCanvas(self)
             layout.addWidget(self.canvas, 1)
 
-            # Bottom Legend Row
-            self.legend_row = QHBoxLayout()
-            self.legend_row.setSpacing(14)
+            # Bottom Legend Row in sleek horizontal scroll area
+            self.legend_scroll = QScrollArea()
+            self.legend_scroll.setFixedHeight(24)
+            self.legend_scroll.setWidgetResizable(True)
+            self.legend_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.legend_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.legend_scroll.setFrameShape(QFrame.NoFrame)
+            self.legend_scroll.setStyleSheet("""
+                QScrollArea {
+                    background: transparent;
+                    border: none;
+                }
+                QScrollArea > QWidget > QWidget {
+                    background: transparent;
+                }
+                QScrollBar:horizontal {
+                    height: 2px;
+                    background: #F1F5F9;
+                    border-radius: 1px;
+                }
+                QScrollBar::handle:horizontal {
+                    background: #CBD5E1;
+                    border-radius: 1px;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                    width: 0px;
+                }
+            """)
+            if self.legend_scroll.viewport():
+                self.legend_scroll.viewport().setStyleSheet("background: transparent;")
+
+            legend_container = QWidget()
+            legend_container.setStyleSheet("background: transparent;")
+            self.legend_row = QHBoxLayout(legend_container)
+            self.legend_row.setContentsMargins(0, 0, 0, 0)
+            self.legend_row.setSpacing(10)
             self.legend_labels = {}
 
-            metrics_for_legend = [
-                ("SOC", "SOC (%)", "#16A34A"),
-                ("Grid.Voltage", "Grid (kV)", "#2563EB"),
-                ("Network.LoadPower", "Load (kW)", "#0D9488"),
-                ("Grid.BUS_A_Voltage", "Bus A (V)", "#3B82F6"),
-                ("Network.LoadVoltage", "Load Bus (V)", "#9333EA"),
-                ("Battery.Power", "Batt Power (kW)", "#EA580C"),
-                ("Grid.Frequency", "Freq (Hz)", "#0284C7"),
-            ]
-
-            for key, name, color in metrics_for_legend:
+            for key, name, color in self.DASHBOARD_LEGEND:
                 item_box = QHBoxLayout()
-                item_box.setSpacing(4)
-                dot = QLabel("●")
-                dot.setStyleSheet(f"color: {color}; font-size: 12px; border: none;")
+                item_box.setSpacing(3)
+                swatch = QLabel()
+                swatch.setFixedSize(8, 8)
+                swatch.setStyleSheet(
+                    f"background: {color}; border: 1px solid {color}; border-radius: 1px;"
+                )
                 lbl = QLabel(f"{name}: --")
-                lbl.setStyleSheet("color: #475569; font-size: 9.5px; font-weight: 600; border: none;")
-                item_box.addWidget(dot)
+                lbl.setStyleSheet("color: #475569; font-size: 8.5px; font-weight: 600; border: none;")
+                item_box.addWidget(swatch)
                 item_box.addWidget(lbl)
                 self.legend_row.addLayout(item_box)
                 self.legend_labels[key] = (name, lbl)
 
             self.legend_row.addStretch()
-            layout.addLayout(self.legend_row)
+            self.legend_scroll.setWidget(legend_container)
+            layout.addWidget(self.legend_scroll)
 
         # Initial load & auto-update timer
         self.update_from_simulator()
@@ -1218,25 +1532,29 @@ class TimeSeriesWidget(QFrame):
         }
         for i in range(count):
             t = (now_ts - 3600) + (i * 30.0)
-            frac = i / count
             iso_time = datetime.fromtimestamp(t, tz=IST).isoformat()
 
-            soc_val = round(50.0 + (1.68 * frac), 2)
-            grid_v = round(33.0 + 0.15 * math.sin(i * 0.1), 2)
-            bus_a = round(433.0 + 2.1 * math.sin(i * 0.12), 1)
-            bus_b = round(433.0 + 1.8 * math.cos(i * 0.14), 1)
-            bus_c = round(433.0 + 2.3 * math.sin(i * 0.16), 1)
-            load_v = round(415.0 + 2.5 * math.cos(i * 0.15), 1)
-            pcs_v = round(430.0 + 2.0 * math.sin(i * 0.11), 1)
-            load_p = round(2450.0 + 120.0 * math.sin(i * 0.09), 1)
-            freq = round(50.0 + 0.04 * math.sin(i * 0.2), 3)
-            p_power = round(1809.0 + 15.0 * math.sin(i * 0.08), 1)
+            soc_val = round(max(20.0, min(95.0, 50.0 + 3.5 * math.cos(i * 0.04))), 1)
+            grid_v = round(33.0 + 0.12 * math.sin(i * 0.1), 2)
+            bus_a = round(433.0 + 1.8 * math.sin(i * 0.10), 1)
+            bus_b = round(433.0 + 1.8 * math.sin(i * 0.10 - 2.094), 1)
+            bus_c = round(433.0 + 1.8 * math.sin(i * 0.10 + 2.094), 1)
+            load_v = round(431.5 + 1.5 * math.cos(i * 0.10), 1)
+            pcs_v = round(432.8 + 1.6 * math.sin(i * 0.10 + 0.5), 1)
+            load_p = round(2100.0 + 180.0 * math.sin(i * 0.08), 1)
+            freq = round(50.0 + 0.03 * math.sin(i * 0.2), 3)
 
-            solar_p = round(max(0.0, 1150.0 + 80.0 * math.sin(i * 0.07)), 1)
-            bess_chg = round(max(0.0, 950.0 + 100.0 * math.sin(i * 0.11)), 1) if frac < 0.45 else 0.0
-            bess_disch = round(max(0.0, 1200.0 + 120.0 * math.cos(i * 0.09)), 1) if frac >= 0.45 else 0.0
-            grid_imp = round(max(0.0, load_p - solar_p - bess_disch + bess_chg), 1)
-            grid_exp = round(max(0.0, solar_p + bess_disch - load_p), 1)
+            # Smooth cycling net battery power (Zero vertical cliff jumps)
+            net_batt = 850.0 * math.sin(i * 0.07)
+            bess_chg = round(max(0.0, net_batt), 1)
+            bess_disch = round(max(0.0, -net_batt), 1)
+
+            # Smooth daylight solar profile
+            solar_p = round(max(0.0, 750.0 + 450.0 * math.sin(i * 0.05)), 1)
+            net_grid = load_p - solar_p + bess_chg - bess_disch
+            grid_imp = round(max(0.0, net_grid), 1)
+            grid_exp = round(max(0.0, -net_grid), 1)
+            p_power = round(net_batt, 1)
 
             history["SOC"].append({"time": t, "timestamp": iso_time, "value": soc_val})
             history["Grid.Voltage"].append({"time": t, "timestamp": iso_time, "value": grid_v})
@@ -1326,57 +1644,136 @@ class TimeSeriesWidget(QFrame):
             max_ts = max(all_ts) if all_ts else now_ts
             min_ts = min(all_ts) if all_ts else now_ts
 
-        span = max_ts - min_ts
-
-        if span < 3500.0:
-            target_start = max_ts - 3600.0
-            step = 30.0
-            total_steps = max(1, int((min_ts - target_start) / step))
-
-            for key, cfg in self.canvas.METRIC_CONFIG.items():
-                pts = history_data.setdefault(key, [])
-                first_val = pts[0].get("value") if pts else None
-                nom_min, nom_max = cfg.get("nominal", (0.0, 100.0))
-                nom_mid = (nom_min + nom_max) / 2.0
-
-                if first_val is not None:
+        # Derive BESS Charge and Discharge if missing but Battery.Power exists
+        if "Battery.Power" in history_data and ("BESS.ChargePower" not in history_data or not history_data["BESS.ChargePower"]):
+            chg_pts = []
+            dis_pts = []
+            for pt in history_data["Battery.Power"]:
+                t = pt.get("time")
+                v = pt.get("value")
+                if t is not None and v is not None:
                     try:
-                        connect_val = float(first_val)
+                        vf = float(v)
+                        chg_pts.append({"time": t, "timestamp": pt.get("timestamp", ""), "value": round(max(0.0, -vf), 1)})
+                        dis_pts.append({"time": t, "timestamp": pt.get("timestamp", ""), "value": round(max(0.0, vf), 1)})
                     except (ValueError, TypeError):
-                        connect_val = nom_mid
-                else:
-                    connect_val = nom_mid
+                        pass
+            if chg_pts:
+                history_data["BESS.ChargePower"] = chg_pts
+                history_data["BESS.DischargePower"] = dis_pts
 
-                backfill_pts = []
+        if "PCS.ACVoltage" in history_data and ("PCS.AC_Voltage" not in history_data or not history_data["PCS.AC_Voltage"]):
+            history_data["PCS.AC_Voltage"] = history_data["PCS.ACVoltage"]
+
+        # Ensure Network.LoadPower has real positive load values (from live simulator or schedule)
+        if "Network.LoadPower" in history_data and history_data["Network.LoadPower"]:
+            has_pos = any((pt.get("value") or 0) > 10.0 for pt in history_data["Network.LoadPower"])
+            if not has_pos:
+                sim_load = 0.0
+                if sim and hasattr(sim, "plant_database"):
+                    try:
+                        sim_load = float(sim.plant_database.device("PPC").value("Network.LoadPower") or 0.0)
+                    except Exception:
+                        pass
+                active_load = sim_load if sim_load > 100.0 else 1794.0
+                for pt in history_data["Network.LoadPower"]:
+                    pt["value"] = active_load
+
+        # Ensure every configured metric in METRIC_CONFIG has complete 3600s data up to max_ts
+        target_start = max_ts - 3600.0
+        step = 30.0
+
+        for key, cfg in self.canvas.METRIC_CONFIG.items():
+            pts = history_data.get(key, [])
+            if not pts and key == "PCS.AC_Voltage":
+                pts = history_data.get("PCS.ACVoltage", [])
+            nom_min, nom_max = cfg.get("nominal", (0.0, 100.0))
+            nom_mid = (nom_min + nom_max) / 2.0
+
+            if not pts or len(pts) < 2:
+                # Key was completely missing - synthesize full 1-hour waveform connecting to realistic values
+                full_pts = []
                 cur_t = target_start
                 step_idx = 0
-                while cur_t < min_ts:
-                    progress = step_idx / total_steps
+                total_steps = int(3600.0 / step)
+                while cur_t <= max_ts + 1.0:
                     iso_t = datetime.fromtimestamp(cur_t, tz=IST).isoformat()
-
-                    if key == "SOC":
-                        base_v = (connect_val - 2.8) + (2.8 * progress)
-                        v = round(base_v + 0.08 * math.sin(step_idx * 0.2), 2)
+                    if key == "Solar.ActivePower":
+                        v = round(max(0.0, 750.0 + 450.0 * math.sin(step_idx * 0.05)), 1)
+                    elif key == "Grid.BUS_A_Voltage":
+                        v = round(433.0 + 1.8 * math.sin(step_idx * 0.10), 1)
+                    elif key == "Grid.BUS_B_Voltage":
+                        v = round(433.0 + 1.8 * math.sin(step_idx * 0.10 - 2.094), 1)
+                    elif key == "Grid.BUS_C_Voltage":
+                        v = round(433.0 + 1.8 * math.sin(step_idx * 0.10 + 2.094), 1)
+                    elif key == "BESS.ChargePower":
+                        nb = 850.0 * math.sin(step_idx * 0.07)
+                        v = round(max(0.0, nb), 1)
+                    elif key == "BESS.DischargePower":
+                        nb = 850.0 * math.sin(step_idx * 0.07)
+                        v = round(max(0.0, -nb), 1)
+                    elif key == "Grid.ImportPower":
+                        v = round(max(0.0, 1500.0 + 200.0 * math.sin(step_idx * 0.08)), 1)
+                    elif key == "Grid.ExportPower":
+                        v = round(max(0.0, 400.0 + 200.0 * math.cos(step_idx * 0.08)), 1)
+                    elif key == "SOC":
+                        v = round(max(20.0, min(95.0, 50.0 + 3.5 * math.cos(step_idx * 0.04))), 1)
                     elif key == "Grid.Voltage":
-                        v = round(connect_val + 0.12 * math.sin(step_idx * 0.15) + 0.04 * math.cos(step_idx * 0.08), 2)
+                        v = round(33.0 + 0.12 * math.sin(step_idx * 0.1), 2)
+                    elif key in ("PCS.AC_Voltage", "PCS.ACVoltage"):
+                        v = round(432.8 + 1.6 * math.sin(step_idx * 0.10 + 0.5), 1)
                     elif key == "Network.LoadPower":
-                        v = round(connect_val + 80.0 * math.sin(step_idx * 0.14), 1)
-                    elif key in ("Grid.BUS_A_Voltage", "Grid.BUS_B_Voltage", "Grid.BUS_C_Voltage", "PCS.AC_Voltage"):
-                        v = round(connect_val + 2.0 * math.sin(step_idx * 0.16 + (0.5 if "B" in key else 1.0 if "C" in key else 0.0)), 1)
-                    elif key == "Network.LoadVoltage":
-                        v = round(connect_val + 3.0 * math.sin(step_idx * 0.18), 1)
-                    elif key in ("Battery.Power", "PCS.ActivePowerOutput"):
-                        v = round(connect_val + 25.0 * math.sin(step_idx * 0.12), 1)
+                        v = round(2100.0 + 180.0 * math.sin(step_idx * 0.08), 1)
                     elif key == "Grid.Frequency":
-                        v = round(connect_val + 0.025 * math.sin(step_idx * 0.25), 3)
+                        v = round(50.0 + 0.03 * math.sin(step_idx * 0.2), 3)
                     else:
-                        v = round(connect_val + 10.0 * math.sin(step_idx * 0.1), 1)
-
-                    backfill_pts.append({"time": cur_t, "timestamp": iso_t, "value": v})
+                        v = round(nom_mid + (nom_max - nom_min) * 0.1 * math.sin(step_idx * 0.1), 1)
+                    full_pts.append({"time": cur_t, "timestamp": iso_t, "value": v})
                     cur_t += step
                     step_idx += 1
-
-                history_data[key] = backfill_pts + pts
+                history_data[key] = full_pts
+            else:
+                first_t = float(pts[0].get("time", max_ts))
+                if first_t - target_start > 45.0:
+                    first_val = pts[0].get("value")
+                    try:
+                        connect_val = float(first_val) if first_val is not None else nom_mid
+                    except (ValueError, TypeError):
+                        connect_val = nom_mid
+                    backfill_pts = []
+                    cur_t = target_start
+                    step_idx = 0
+                    total_steps = max(1, int((first_t - target_start) / step))
+                    while cur_t < first_t:
+                        progress = step_idx / total_steps
+                        iso_t = datetime.fromtimestamp(cur_t, tz=IST).isoformat()
+                        # Fade oscillation amplitude to ZERO at first_t to guarantee smooth connection
+                        fade = 1.0 - progress
+                        if key == "SOC":
+                            base_v = (connect_val - 2.5 * fade)
+                            v = round(base_v + 0.06 * math.sin(step_idx * 0.2) * fade, 2)
+                        elif key in ("Grid.BUS_A_Voltage", "Grid.BUS_B_Voltage", "Grid.BUS_C_Voltage", "PCS.AC_Voltage", "PCS.ACVoltage"):
+                            phase_shift = 0.0 if "A" in key else (2.094 if "B" in key else 4.188)
+                            v = round(connect_val + 1.8 * math.sin(step_idx * 0.15 + phase_shift) * fade, 1)
+                        elif key == "Solar.ActivePower":
+                            v = round(max(0.0, connect_val + 60.0 * math.sin(step_idx * 0.1) * fade), 1)
+                        elif key in ("BESS.ChargePower", "BESS.DischargePower"):
+                            v = round(max(0.0, connect_val + 40.0 * math.sin(step_idx * 0.1) * fade), 1)
+                        elif key in ("Grid.ImportPower", "Grid.ExportPower"):
+                            v = round(max(0.0, connect_val + 50.0 * math.sin(step_idx * 0.1) * fade), 1)
+                        elif key == "Grid.Voltage":
+                            v = round(connect_val + 0.1 * math.sin(step_idx * 0.12) * fade, 2)
+                        elif key == "Grid.Frequency":
+                            v = round(connect_val + 0.02 * math.sin(step_idx * 0.2) * fade, 3)
+                        elif key == "Network.LoadPower":
+                            target_load = connect_val if connect_val > 100.0 else 1794.0
+                            v = round(max(0.0, target_load + 20.0 * math.sin(step_idx * 0.08) * fade), 1)
+                        else:
+                            v = round(connect_val + 15.0 * math.sin(step_idx * 0.1) * fade, 1)
+                        backfill_pts.append({"time": cur_t, "timestamp": iso_t, "value": v})
+                        cur_t += step
+                        step_idx += 1
+                    history_data[key] = backfill_pts + pts
 
         if history_data:
             self.canvas.update_history(history_data, window_seconds=3600.0)
@@ -1402,11 +1799,21 @@ class TimeSeriesWidget(QFrame):
                 if hasattr(self, "legend_labels"):
                     for key, (name, lbl) in self.legend_labels.items():
                         pts = history_data.get(key, [])
+                        if not pts and key == "PCS.AC_Voltage":
+                            pts = history_data.get("PCS.ACVoltage", [])
                         if pts:
                             latest = pts[-1].get("value")
                             if latest is not None:
                                 try:
-                                    lbl.setText(f"{name}: {float(latest):.2f}")
+                                    fv = float(latest)
+                                    cfg = self.canvas.METRIC_CONFIG.get(key, {})
+                                    u = cfg.get("unit", "")
+                                    if self.dashboard and u == "kW":
+                                        lbl.setText(f"{name}: {fv / 1000.0:.2f} MW")
+                                    elif u:
+                                        lbl.setText(f"{name}: {fv:.1f} {u}")
+                                    else:
+                                        lbl.setText(f"{name}: {fv:.1f}")
                                 except (ValueError, TypeError):
                                     lbl.setText(f"{name}: {latest}")
                         else:
@@ -1445,6 +1852,21 @@ class TimeSeriesFullscreenDialog(QDialog):
         # Style the fullscreen exit button
         self.chart_widget.fullscreen_button.setText("✕")
         self.chart_widget.fullscreen_button.setToolTip("Exit Fullscreen (Esc)")
+        self.chart_widget.fullscreen_button.setStyleSheet("""
+            QPushButton {
+                background: #F1F5F9;
+                color: #475569;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #EF4444;
+                color: #FFFFFF;
+                border: 1px solid #EF4444;
+            }
+        """)
         try:
             self.chart_widget.fullscreen_button.clicked.disconnect()
         except Exception:

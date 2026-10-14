@@ -132,10 +132,10 @@ class BessDispatchScheduleWidget(QFrame):
 
         header = QHBoxLayout()
         header.setContentsMargins(3, 0, 3, 0)
-        header.setSpacing(4)
-        header_widget = QWidget()
-        header_widget.setFixedHeight(40)
-        header_widget.setLayout(header)
+        header.setSpacing(6)
+        self.header_widget = QWidget()
+        self.header_widget.setFixedHeight(40)
+        self.header_widget.setLayout(header)
 
         calendar = QLabel("▣")
         calendar.setFixedWidth(20)
@@ -159,12 +159,30 @@ class BessDispatchScheduleWidget(QFrame):
         header.addWidget(title)
         header.addStretch(1)
 
+        # Dedicated horizontal elapsed badge - placed separately to NEVER overlap with clock
+        self.elapsed_time_top = QLabel("Elapsed: 00:00 / 15m")
+        self.elapsed_time_top.setAlignment(Qt.AlignCenter)
+        self.elapsed_time_top.setStyleSheet("""
+            QLabel {
+                color: #D97706;
+                background: #FFFBEB;
+                border: 1px solid #FDE68A;
+                border-radius: 4px;
+                font-size: 9px;
+                font-weight: 700;
+                padding: 2px 6px;
+            }
+        """)
+        header.addWidget(self.elapsed_time_top)
+        header.addSpacing(6)
+
+        # Dedicated clock box - strictly 2 lines (time and date) so they NEVER collide
         self.time_box = QVBoxLayout()
         self.time_box.setContentsMargins(0, 0, 4, 0)
-        self.time_box.setSpacing(2)
+        self.time_box.setSpacing(1)
 
         self.time_label = QLabel("15:52")
-        self.time_label.setAlignment(Qt.AlignRight)
+        self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.time_label.setStyleSheet("""
             QLabel {
                 color: #1671D9;
@@ -173,18 +191,8 @@ class BessDispatchScheduleWidget(QFrame):
             }
         """)
 
-        self.elapsed_time_top = QLabel("Elapsed: 00:00 / 15m")
-        self.elapsed_time_top.setAlignment(Qt.AlignRight)
-        self.elapsed_time_top.setStyleSheet("""
-            QLabel {
-                color: #D97706;
-                font-size: 8px;
-                font-weight: 700;
-            }
-        """)
-
         self.date_label = QLabel("29 Sep 2025")
-        self.date_label.setAlignment(Qt.AlignRight)
+        self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.date_label.setStyleSheet("""
             QLabel {
                 color: #526170;
@@ -194,10 +202,10 @@ class BessDispatchScheduleWidget(QFrame):
         """)
 
         self.time_box.addWidget(self.time_label)
-        self.time_box.addWidget(self.elapsed_time_top)
         self.time_box.addWidget(self.date_label)
 
         header.addLayout(self.time_box)
+        header.addSpacing(4)
         self.fullscreen_button = QToolButton()
         self.fullscreen_button.setText("⛶")
         self.fullscreen_button.setFixedSize(22, 22)
@@ -220,7 +228,7 @@ class BessDispatchScheduleWidget(QFrame):
         """)
         self.fullscreen_button.clicked.connect(self._toggle_fullscreen)
         header.addWidget(self.fullscreen_button)
-        root.addWidget(header_widget)
+        root.addWidget(self.header_widget)
 
         # DEDICATED ACTIVE EVENT BANNER (Prominent & Never overlaps)
         self.running_event_badge = QFrame()
@@ -301,7 +309,7 @@ class BessDispatchScheduleWidget(QFrame):
         schedule_frame.setFixedHeight(18)
 
         self._add_header_cell(schedule_header, "Event ID", 95)
-        self._add_header_cell(schedule_header, "Time", 38)
+        self._add_header_cell(schedule_header, "Time", 68)
         self._add_header_cell(schedule_header, "Load (kW)", 46)
         self._add_header_cell(schedule_header, "Tariff", 40)
         self._add_header_cell(schedule_header, "Decision", 58)
@@ -676,24 +684,36 @@ class BessDispatchScheduleWidget(QFrame):
 
     def _set_fullscreen_fonts(self, fullscreen):
         if fullscreen:
+            if hasattr(self, "header_widget"):
+                self.header_widget.setFixedHeight(48)
             if hasattr(self, "time_box"):
-                self.time_box.setSpacing(4)
+                self.time_box.setSpacing(2)
             self.time_label.setStyleSheet("""
                 QLabel {
                     color: #1671D9;
-                    font-size: 24px;
+                    font-size: 18px;
                     font-weight: 800;
                 }
             """)
             self.date_label.setStyleSheet("""
                 QLabel {
                     color: #526170;
-                    font-size: 11px;
+                    font-size: 10px;
                     font-weight: 600;
                 }
             """)
             if hasattr(self, "elapsed_time_top"):
-                self.elapsed_time_top.setStyleSheet("color: #D97706; font-size: 12px; font-weight: 700;")
+                self.elapsed_time_top.setStyleSheet("""
+                    QLabel {
+                        color: #D97706;
+                        background: #FFFBEB;
+                        border: 1px solid #FDE68A;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        padding: 3px 8px;
+                    }
+                """)
             if hasattr(self, "running_elapsed_badge"):
                 self.running_elapsed_badge.setStyleSheet("color: #B45309; font-size: 11px; font-weight: 800; border: none;")
             self.current_load_value.setStyleSheet("""
@@ -740,23 +760,37 @@ class BessDispatchScheduleWidget(QFrame):
             self._update_running_event_badge()
             return
 
+        if hasattr(self, "header_widget"):
+            self.header_widget.setFixedHeight(40)
         if hasattr(self, "time_box"):
-            self.time_box.setSpacing(2)
+            self.time_box.setSpacing(1)
 
         self.time_label.setStyleSheet("""
             QLabel {
                 color: #1671D9;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 800;
             }
         """)
         self.date_label.setStyleSheet("""
             QLabel {
                 color: #526170;
-                font-size: 6px;
+                font-size: 8px;
                 font-weight: 600;
             }
         """)
+        if hasattr(self, "elapsed_time_top"):
+            self.elapsed_time_top.setStyleSheet("""
+                QLabel {
+                    color: #D97706;
+                    background: #FFFBEB;
+                    border: 1px solid #FDE68A;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    font-weight: 700;
+                    padding: 2px 6px;
+                }
+            """)
         self.current_load_value.setStyleSheet("""
             QLabel {
                 color: #263746;
@@ -1348,7 +1382,7 @@ class BessDispatchScheduleWidget(QFrame):
         event_id.setContentsMargins(2, 0, 0, 0)
 
         time = QLabel(str(item.get("time", "")))
-        time.setFixedWidth(38)
+        time.setFixedWidth(68)
         time.setAlignment(Qt.AlignCenter)
 
         load = QLabel(
