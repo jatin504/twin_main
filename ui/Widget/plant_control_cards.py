@@ -27,7 +27,7 @@ class PlantControlCard(QFrame):
         r_pu = float(initial_values.get("r_pu", 0.01))
         x_pu = float(initial_values.get("x_pu", 0.04))
 
-        self.setFixedSize(270, 210)
+        self.setFixedSize(270, 175)
 
         self.setStyleSheet("""
             QFrame {
@@ -203,28 +203,12 @@ class PlantControlCard(QFrame):
             Qt.NoFocus
         )
 
-        # ==================================================
-        # GRID AVAILABILITY BUTTON
-        # ==================================================
-
-        self.grid_availability_button = QPushButton(
-            "◉  Grid Availability"
-        )
-        self.grid_availability_button.setFixedHeight(32)
-        self.grid_availability_button.setFocusPolicy(
-            Qt.NoFocus
-        )
-
         layout.addWidget(
             self.grid_voltage_button
         )
 
         layout.addWidget(
             self.grid_frequency_button
-        )
-
-        layout.addWidget(
-            self.grid_availability_button
         )
 
         layout.addStretch()
@@ -265,7 +249,7 @@ class PlantControlCards(QWidget):
         # ]
         transformer_list = transformer_list or []
 
-        self.setFixedHeight(220)
+        self.setFixedHeight(185)
 
         layout = QHBoxLayout(self)
 

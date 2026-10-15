@@ -4,6 +4,7 @@ plant:
   utility:
     bus: GRID_33KV
     voltage_kv: 33
+    available: false
     short_circuit_mva: 500
     x_r_ratio: 10
 transformers:
@@ -129,7 +130,7 @@ pcs:
   initial_condition:
     SOC: 50.0
     SOH: 100.0
-    Initial_Temperature_K: 329.15
+    Initial_Temperature_K: 298.15
 loads:
 - id: CHILLERS
   bus: LOAD_BUS

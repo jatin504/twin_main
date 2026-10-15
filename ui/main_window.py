@@ -23,6 +23,7 @@ from state.tags import Tags
 from ui.Widget.header import HeaderWidget
 from ui.Widget.navbar import NavBar
 from ui.Widget.ribbon import Ribbon
+from ui.Widget.grid_availability_control import GridAvailabilityControl
 from ui.Widget.power_flow import PowerFlowWidget
 from ui.Widget.voltage_profile_widget import VoltageProfileWidget
 from ui.Widget.branch_summary import BranchSummaryWidget
@@ -455,9 +456,7 @@ class MainWindow(QMainWindow):
                     font-weight: 700;
                 }
         """)
-        custom_layout.addWidget(
-                plant_title
-        )
+        custom_layout.addWidget(plant_title)
         custom_layout.addSpacing(2)
         self.plantControlCards = PlantControlCards(
             transformer_list=self.get_yaml_transformer_impedance()
@@ -467,6 +466,9 @@ class MainWindow(QMainWindow):
             0,
             Qt.AlignTop
         )
+        self.gridAvailabilityControl = GridAvailabilityControl(self.plant_yaml_path)
+        self.gridAvailabilityControl.availability_changed.connect(self._apply_grid_availability)
+        custom_layout.addWidget(self.gridAvailabilityControl)
         # SUBMIT BUTTON - CUSTOM ONLY
         submit_layout = QHBoxLayout()
         submit_layout.setContentsMargins(0, 15, 0, 0)
@@ -501,6 +503,17 @@ class MainWindow(QMainWindow):
         custom_layout.addLayout(
             submit_layout
         )
+    def _apply_grid_availability(self, available):
+        """Apply the persisted utility switch to registered live grid states."""
+        simulator = getattr(self, "simulator", None)
+        database = getattr(simulator, "plant_database", None)
+        if database is None:
+            return
+        for device_id in database.ids():
+            device = database.device(device_id)
+            if device.exists(Tags.Grid.AVAILABLE):
+                device.set(Tags.Grid.AVAILABLE, available)
+
     def build_builtin_page(self, page):
         page.setSizePolicy(
             QSizePolicy.Expanding,
@@ -896,6 +909,11 @@ class MainWindow(QMainWindow):
                     self.bessDispatchSchedule.elapsed_seconds = 0
                     if hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
                         self.bessDispatchSchedule.set_running_event(self.bessDispatchSchedule.schedule[0].get("event_id"))
+
+            if hasattr(self, "gridAvailabilityControl"):
+                self.gridAvailabilityControl.reload()
+                if self.gridAvailabilityControl.button.isEnabled():
+                    self._apply_grid_availability(self.gridAvailabilityControl.available)
 
             self.simulation_button.setText(
                 "■ Stop Simulation"
