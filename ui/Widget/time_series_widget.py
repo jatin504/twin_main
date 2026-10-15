@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
 import time
 from datetime import datetime
 from common.constants import IST
-from PySide6.QtCore import Qt, QPoint, QRect, QTimer
+from state.tags import Tags
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer, QEvent
 from PySide6.QtGui import (
     QColor,
     QPainter,
@@ -33,21 +35,48 @@ from PySide6.QtWidgets import (
 )
 
 
+class MetricComboBox(QComboBox):
+    """Keep the parameter checklist open while toggling several metrics."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.view().viewport().installEventFilter(self)
+        self.toggle_metric = None
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            index = self.view().currentIndex()
+            if index.isValid() and self.toggle_metric:
+                self.toggle_metric(self.itemData(index.row()))
+                return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, watched, event):
+        if watched is self.view().viewport() and event.type() == QEvent.MouseButtonRelease:
+            index = self.view().indexAt(event.position().toPoint())
+            if index.isValid() and self.toggle_metric:
+                self.toggle_metric(self.itemData(index.row()))
+            return True
+        return super().eventFilter(watched, event)
+
+
 class TimeSeriesChartCanvas(QWidget):
     """
     QPainter-based high-performance time-series chart canvas for 1-hour rolling historical trends.
     Supports both compact 330x250 embed view and full-screen 1080p display.
     """
 
+    TOOLTIP_BACKGROUND_ALPHA = 155  # 0 transparent, 255 opaque; keep curves visible.
+
     METRIC_CONFIG = {
-        "Solar.ActivePower": {
+        Tags.SOLAR.PV_POWER: {
             "label": "Solar Generation",
             "unit": "kW",
             "color": "#F97316",  # Sun Orange (Exclusive Area Spline)
             "scale": 1.0,
             "nominal": (0.0, 1500.0),
             "tier": (0.05, 0.25),
-            "fill": True,
+            "fill": False,
         },
         "Network.LoadPower": {
             "label": "Load",
@@ -191,6 +220,8 @@ class TimeSeriesChartCanvas(QWidget):
 
         # Raw history data dict: { tag_name: [ {"time": float, "value": float, ...}, ... ] }
         self.history_data: dict[str, list[dict]] = {}
+        self.selected_metrics = []
+        self.anchor_ts = None
         self.selected_metric: str = "ALL"  # "ALL" or specific tag key
         self.window_seconds: float = 3600.0  # 1 hour window
 
@@ -203,7 +234,7 @@ class TimeSeriesChartCanvas(QWidget):
 
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
-        if self.hover_pos and abs(self.hover_pos.x() - pos.x()) < 2:
+        if self.hover_pos and (self.hover_pos - pos).manhattanLength() < 2:
             return
         self.hover_pos = pos
         self.hover_active = True
@@ -230,6 +261,7 @@ class TimeSeriesChartCanvas(QWidget):
         super().leaveEvent(event)
 
     def set_selected_metric(self, metric: str):
+        self.selected_metrics = [] if metric == "ALL" else [metric]
         self.selected_metric = metric
         self.update()
 
@@ -276,14 +308,14 @@ class TimeSeriesChartCanvas(QWidget):
             p.drawText(
                 QRect(0, 0, w, h),
                 Qt.AlignCenter,
-                "Loading 1-hour historical data...",
+                "No recorded history available",
             )
             return
 
         # Determine which metrics to plot
         if self.selected_metric == "ALL":
             default_keys = [
-                "Solar.ActivePower",
+                Tags.SOLAR.PV_POWER,
                 "Network.LoadPower",
                 "BESS.ChargePower",
                 "BESS.DischargePower",
@@ -297,6 +329,7 @@ class TimeSeriesChartCanvas(QWidget):
                 "SOC",
                 "Grid.Frequency",
             ]
+            default_keys = self.selected_metrics or default_keys
             active_keys = [k for k in default_keys if (k in self.history_data and self.history_data[k]) or (k == "PCS.AC_Voltage" and self.history_data.get("PCS.ACVoltage"))]
             if not active_keys:
                 active_keys = [k for k in self.history_data.keys() if self.history_data[k]][:8]
@@ -329,6 +362,7 @@ class TimeSeriesChartCanvas(QWidget):
         else:
             anchor_ts = now_sys
 
+        anchor_ts = self.anchor_ts if self.anchor_ts is not None else anchor_ts
         cutoff_ts = anchor_ts - self.window_seconds
 
         # -------------------------------------------------------------------------
@@ -443,6 +477,8 @@ class TimeSeriesChartCanvas(QWidget):
             step = 10.0 if (max_val - min_val) > 50 else 1.0
             min_val = math.floor(min_val / step) * step
             max_val = math.ceil(max_val / step) * step
+            if self.selected_metric in ("BESS.ChargePower", "BESS.DischargePower"):
+                min_val, max_val = min(0.0, min_val), max(0.0, max_val)
             val_range = max(1e-6, max_val - min_val)
             unit = s_unit
 
@@ -452,7 +488,7 @@ class TimeSeriesChartCanvas(QWidget):
         grid_pen = QPen(QColor("#F1F5F9"), 1, Qt.SolidLine)
         p.setPen(grid_pen)
 
-        y_ticks = 4 if is_compact else 5
+        y_ticks = 7  # Six equal intervals on every Y axis
         font_axis = QFont("Segoe UI", 7 if is_compact else 8)
         p.setFont(font_axis)
 
@@ -521,20 +557,13 @@ class TimeSeriesChartCanvas(QWidget):
             p.setFont(font_axis)
 
         # Vertical time grid lines
-        if is_compact:
-            time_intervals = [
-                (-3600, "-60m"),
-                (-1800, "-30m"),
-                (0, "Now"),
-            ]
-        else:
-            time_intervals = [
-                (-3600, "-60m"),
-                (-2700, "-45m"),
-                (-1800, "-30m"),
-                (-900, "-15m"),
-                (0, "Now"),
-            ]
+        divisions = 2 if is_compact else 4
+        time_intervals = [
+            (-self.window_seconds * i / divisions,
+             "End" if i == 0 and self.anchor_ts is not None else
+             "Now" if i == 0 else f"-{self.window_seconds * i / divisions / 60:g}m")
+            for i in range(divisions, -1, -1)
+        ]
 
         for offset_sec, label in time_intervals:
             frac = (offset_sec + self.window_seconds) / self.window_seconds
@@ -660,14 +689,19 @@ class TimeSeriesChartCanvas(QWidget):
             return path
 
         # -----------------------------------------------------------------
-        # 1. ONLY SOLAR POWER GETS AN AREA-SPLINE (ALL OTHERS: NO FILL!)
+        # 1. Fill charge below zero and discharge above zero only.
         # -----------------------------------------------------------------
-        if "Solar.ActivePower" in active_keys:
-            solar_cfg, solar_col, solar_pts = _curve_for("Solar.ActivePower")
+        for area_key in ("BESS.ChargePower", "BESS.DischargePower"):
+            if area_key not in active_keys:
+                continue
+            solar_cfg, solar_col, solar_pts = _curve_for(area_key)
             if solar_cfg and len(solar_pts) >= 2:
-                solar_spline = _build_spline_path(solar_pts)
+                solar_spline = QPainterPath()
+                solar_spline.moveTo(solar_pts[0])
+                for point in solar_pts[1:]:
+                    solar_spline.lineTo(point)
 
-                # Baseline for Solar power is strictly 0 kW (NOT negative kW at bottom of chart!)
+                # Close the charge/discharge area at zero power.
                 if is_all_mode:
                     zero_power_y = min(bottom, max(top, bottom - (0.0 - power_min) / power_range * chart_height))
                 else:
@@ -680,9 +714,9 @@ class TimeSeriesChartCanvas(QWidget):
 
                 min_solar_y = min(pt.y() for pt in solar_pts)
                 grad = QLinearGradient(0, min_solar_y, 0, int(zero_power_y))
-                grad.setColorAt(0.0, QColor(249, 115, 22, 115))  # Radiant Sun Orange
-                grad.setColorAt(0.5, QColor(249, 115, 22, 45))
-                grad.setColorAt(1.0, QColor(249, 115, 22, 0))    # Zero at 0 kW baseline
+                grad.setColorAt(0.0, QColor(solar_col.red(), solar_col.green(), solar_col.blue(), 90))  # Radiant Sun Orange
+                grad.setColorAt(0.5, QColor(solar_col.red(), solar_col.green(), solar_col.blue(), 35))
+                grad.setColorAt(1.0, QColor(solar_col.red(), solar_col.green(), solar_col.blue(), 0))    # Zero at 0 kW baseline
 
                 p.setPen(Qt.NoPen)
                 p.setBrush(QBrush(grad))
@@ -697,10 +731,10 @@ class TimeSeriesChartCanvas(QWidget):
                 continue
 
             if len(curve_points) >= 2:
-                stroke_w = 2.4 if metric_key == "Solar.ActivePower" else (1.9 if is_compact else 2.1)
+                stroke_w = 2.4 if metric_key == Tags.SOLAR.PV_POWER else (1.9 if is_compact else 2.1)
                 p.setPen(QPen(line_color, stroke_w, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
 
-                if metric_key == "Solar.ActivePower":
+                if metric_key == Tags.SOLAR.PV_POWER:
                     p.drawPath(_build_spline_path(curve_points))
                 else:
                     p.drawPolyline(curve_points)
@@ -737,8 +771,8 @@ class TimeSeriesChartCanvas(QWidget):
                 solar_val = "--"
                 load_val = "--"
                 soc_val = "--"
-                if "Solar.ActivePower" in self.history_data and self.history_data["Solar.ActivePower"]:
-                    v = self.history_data["Solar.ActivePower"][-1].get("value")
+                if Tags.SOLAR.PV_POWER in self.history_data and self.history_data[Tags.SOLAR.PV_POWER]:
+                    v = self.history_data[Tags.SOLAR.PV_POWER][-1].get("value")
                     if v is not None:
                         solar_val = f"{float(v) / 1000.0:.2f} MW" if self.dashboard_style else f"{float(v):.0f} kW"
                 if "Network.LoadPower" in self.history_data and self.history_data["Network.LoadPower"]:
@@ -765,7 +799,7 @@ class TimeSeriesChartCanvas(QWidget):
 
                 p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
                 p.setPen(QColor("#10B981"))
-                p.drawText(pill_x + 18, pill_y + 13, "LIVE")
+                p.drawText(pill_x + 18, pill_y + 13, "PAUSED" if self.anchor_ts is not None else "LIVE")
 
                 p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
                 p.setPen(QColor("#94A3B8"))
@@ -859,7 +893,7 @@ class TimeSeriesChartCanvas(QWidget):
 
                             if is_all_mode:
                                 m_min, m_range = metric_scales.get(metric_key, (0.0, 100.0))
-                                vf_plot = (vf / 33.0) * 433.0 if cfg.get("unit") == "kV" and vf > 0 else vf
+                                vf_plot = (vf / 33.0) * 433.0 if cfg.get("unit") == "kV" and vf > 0 and is_all_mode else vf
                                 norm_y = min(1.0, max(0.0, (vf_plot - m_min) / m_range))
                                 pt_py = bottom - norm_y * chart_height
                             else:
@@ -872,7 +906,7 @@ class TimeSeriesChartCanvas(QWidget):
 
                             SHORT_NAMES = {
                                 "Network.LoadPower": "Load",
-                                "Solar.ActivePower": "Solar",
+                                Tags.SOLAR.PV_POWER: "Solar",
                                 "BESS.ChargePower": "BESS Chg",
                                 "BESS.DischargePower": "BESS Dis",
                                 "Grid.ImportPower": "Grid Imp",
@@ -889,8 +923,10 @@ class TimeSeriesChartCanvas(QWidget):
                                 "Grid.Frequency": "Freq",
                             }
                             short_lbl = SHORT_NAMES.get(metric_key, cfg["label"].replace(" Voltage", "").replace(" Generation", "").replace("Power", "").strip()[:8])
-                            if self.dashboard_style and cfg.get("unit") == "kW":
+                            if self.dashboard_style and is_all_mode and cfg.get("unit") == "kW":
                                 tooltip_items.append((short_lbl, f"{vf / 1000.0:.2f} MW", line_color))
+                            elif is_all_mode and cfg.get("unit") == "kV":
+                                tooltip_items.append((short_lbl, f"{vf / 33.0 * 433.0:.1f} V", line_color))
                             else:
                                 tooltip_items.append((short_lbl, f"{vf:.1f} {cfg['unit']}", line_color))
                         except (ValueError, TypeError):
@@ -928,12 +964,12 @@ class TimeSeriesChartCanvas(QWidget):
                     card_y = max(top + 4, min(bottom - card_h - 4, self.hover_pos.y() - card_h // 2))
 
                     p.setPen(QPen(QColor("#334155"), 1.0))
-                    p.setBrush(QBrush(QColor(15, 23, 42, 220)))
+                    p.setBrush(QBrush(QColor(255, 255, 255, self.TOOLTIP_BACKGROUND_ALPHA)))
                     p.drawRoundedRect(card_x, card_y, card_w, card_h, 6, 6)
 
                     # Card Header
                     p.setFont(QFont("Segoe UI", 7, QFont.Bold))
-                    p.setPen(header_color)
+                    p.setPen(QColor("#334155"))
                     p.drawText(card_x + 8, card_y + 14, header_text)
                     if max_scroll > 0:
                         p.setPen(QColor("#64748B"))
@@ -958,11 +994,11 @@ class TimeSeriesChartCanvas(QWidget):
                             p.drawText(card_x + 8, ry, "●")
 
                             p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
-                            p.setPen(QColor("#94A3B8"))
+                            p.setPen(QColor("#475569"))
                             p.drawText(card_x + 18, ry, lbl)
 
                             p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
-                            p.setPen(QColor("#FFFFFF"))
+                            p.setPen(QColor("#0F172A"))
                             p.drawText(QRect(card_x + 58, ry - 9, c1_w - 52, 13), Qt.AlignRight | Qt.AlignVCenter, val_str)
 
                         # Column 2
@@ -974,11 +1010,11 @@ class TimeSeriesChartCanvas(QWidget):
                             p.drawText(mid_x + 6, ry, "●")
 
                             p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
-                            p.setPen(QColor("#94A3B8"))
+                            p.setPen(QColor("#475569"))
                             p.drawText(mid_x + 16, ry, lbl)
 
                             p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
-                            p.setPen(QColor("#FFFFFF"))
+                            p.setPen(QColor("#0F172A"))
                             p.drawText(QRect(mid_x + 56, ry - 9, c2_w - 52, 13), Qt.AlignRight | Qt.AlignVCenter, val_str)
 
                         # Scrollbar track if scrollable
@@ -998,11 +1034,11 @@ class TimeSeriesChartCanvas(QWidget):
                             p.drawText(card_x + 8, row_y, "●")
 
                             p.setFont(QFont("Segoe UI", 6.5, QFont.Normal))
-                            p.setPen(QColor("#94A3B8"))
+                            p.setPen(QColor("#475569"))
                             p.drawText(card_x + 18, row_y, lbl)
 
                             p.setFont(QFont("Segoe UI", 6.5, QFont.Bold))
-                            p.setPen(QColor("#FFFFFF"))
+                            p.setPen(QColor("#0F172A"))
                             p.drawText(QRect(card_x + 60, row_y - 9, card_w - 68, 13), Qt.AlignRight | Qt.AlignVCenter, val_str)
                             row_y += 14
 
@@ -1024,7 +1060,7 @@ class TimeSeriesWidget(QFrame):
 
     METRIC_FILTERS = [
         ("All Trends (Overview)", "ALL"),
-        ("Solar Generation (kW)", "Solar.ActivePower"),
+        ("Solar Generation (kW)", Tags.SOLAR.PV_POWER),
         ("Load (kW)", "Network.LoadPower"),
         ("BESS Charge (kW)", "BESS.ChargePower"),
         ("BESS Discharge (kW)", "BESS.DischargePower"),
@@ -1043,7 +1079,7 @@ class TimeSeriesWidget(QFrame):
     ]
 
     DASHBOARD_LEGEND = [
-        ("Solar.ActivePower", "Solar", "#F97316"),
+        (Tags.SOLAR.PV_POWER, "Solar", "#F97316"),
         ("Network.LoadPower", "Load", "#6366F1"),
         ("BESS.ChargePower", "BESS Chg", "#10B981"),
         ("BESS.DischargePower", "BESS Dis", "#EC4899"),
@@ -1106,7 +1142,7 @@ class TimeSeriesWidget(QFrame):
             header_row.addWidget(window_chip)
             header_row.addStretch()
 
-            self.metric_combo = QComboBox()
+            self.metric_combo = MetricComboBox()
             self.metric_combo.setFixedHeight(22)
             self.metric_combo.setMinimumWidth(190)
             self.metric_combo.setStyleSheet("""
@@ -1129,7 +1165,11 @@ class TimeSeriesWidget(QFrame):
             """)
             for label, key in self.METRIC_FILTERS:
                 self.metric_combo.addItem(label, key)
-            self.metric_combo.currentIndexChanged.connect(self._on_combo_changed)
+            for index in range(self.metric_combo.count()):
+                item = self.metric_combo.model().item(index)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked if index == 0 else Qt.Unchecked)
+            self.metric_combo.toggle_metric = self._toggle_metric
             header_row.addWidget(self.metric_combo)
 
             self.fullscreen_button = QPushButton("⛶")
@@ -1193,7 +1233,7 @@ class TimeSeriesWidget(QFrame):
             header_row.addWidget(title)
 
             # Metric selector dropdown
-            self.metric_combo = QComboBox()
+            self.metric_combo = MetricComboBox()
             self.metric_combo.setFixedHeight(22)
             self.metric_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.metric_combo.setStyleSheet("""
@@ -1216,7 +1256,11 @@ class TimeSeriesWidget(QFrame):
             """)
             for label, key in self.METRIC_FILTERS:
                 self.metric_combo.addItem(label, key)
-            self.metric_combo.currentIndexChanged.connect(self._on_combo_changed)
+            for index in range(self.metric_combo.count()):
+                item = self.metric_combo.model().item(index)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked if index == 0 else Qt.Unchecked)
+            self.metric_combo.toggle_metric = self._toggle_metric
             header_row.addWidget(self.metric_combo)
 
             # Fullscreen button
@@ -1351,7 +1395,7 @@ class TimeSeriesWidget(QFrame):
             filter_row.setSpacing(5)
 
             self.button_group = QButtonGroup(self)
-            self.button_group.setExclusive(True)
+            self.button_group.setExclusive(False)
 
             for idx, (label_text, metric_key) in enumerate(self.METRIC_FILTERS):
                 btn = QPushButton(label_text)
@@ -1379,7 +1423,7 @@ class TimeSeriesWidget(QFrame):
                         font-weight: 700;
                     }
                 """)
-                btn.clicked.connect(lambda checked, k=metric_key: self.on_metric_selected(k))
+                btn.clicked.connect(lambda checked, k=metric_key: self._toggle_metric(k))
                 self.button_group.addButton(btn, idx)
                 filter_row.addWidget(btn)
 
@@ -1457,11 +1501,98 @@ class TimeSeriesWidget(QFrame):
             self.legend_scroll.setWidget(legend_container)
             layout.addWidget(self.legend_scroll)
 
+        self._sync_metric_controls()
+        self._frozen = False
+        self.history_button = QPushButton("Last 15 min")
+        self.history_button.setCheckable(True)
+        self.history_button.setCursor(Qt.PointingHandCursor)
+        self.history_button.setMinimumWidth(115)
+        self.history_button.setFixedHeight(24)
+        self.history_button.setStyleSheet("""
+            QPushButton {
+                background: #EFF6FF;
+                color: #1D4ED8;
+                border: 1px solid #93C5FD;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #DBEAFE;
+                border-color: #2563EB;
+            }
+            QPushButton:checked {
+                background: #1D4ED8;
+                color: #FFFFFF;
+                border-color: #1D4ED8;
+            }
+        """)
+        self.history_button.setToolTip(
+            "Freeze the last 15 minutes of recorded data. Click again to resume live trends.")
+        self.history_button.toggled.connect(self._set_history_mode)
+        header_row.addWidget(self.history_button)
+
         # Initial load & auto-update timer
         self.update_from_simulator()
         self.auto_timer = QTimer(self)
         self.auto_timer.timeout.connect(self.update_from_simulator)
         self.auto_timer.start(1000)
+
+    def _set_history_mode(self, frozen):
+        """Freeze the currently recorded trailing fifteen minutes until toggled off."""
+        self._frozen = frozen
+        if frozen:
+            self.canvas.history_data = copy.deepcopy(self.canvas.history_data)
+            times = [float(p["time"]) for pts in self.canvas.history_data.values()
+                     for p in pts if p.get("time") is not None]
+            self.canvas.anchor_ts = max(times) if times else time.time()
+            self.canvas.window_seconds = 900.0
+            self.auto_timer.stop()
+            if hasattr(self, "stats_badge"):
+                self.stats_badge.setText("● HISTORY SNAPSHOT: Last 15 min | Paused")
+            if hasattr(self, "compact_status"):
+                self.compact_status.setText("● Last 15 min | Paused")
+        else:
+            self.canvas.anchor_ts = None
+            self._last_poll_time = 0
+            self.update_from_simulator()
+            self.auto_timer.start(1000)
+        self.history_button.setText("Last 15 min (paused)" if frozen else "Last 15 min")
+        self.canvas.update()
+
+    def _toggle_metric(self, key):
+        selected = set(self.canvas.selected_metrics)
+        if key == "ALL":
+            selected.clear()
+        elif key in selected:
+            selected.remove(key)
+        else:
+            selected.add(key)
+        self.canvas.selected_metrics = [k for _, k in self.METRIC_FILTERS if k in selected]
+        self.canvas.selected_metric = next(iter(selected)) if len(selected) == 1 else "ALL"
+        if hasattr(self, "button_group"):
+            for index, (_, metric) in enumerate(self.METRIC_FILTERS):
+                self.button_group.button(index).setChecked(metric in selected or (metric == "ALL" and not selected))
+        self._sync_metric_controls()
+        self.canvas.update()
+
+    def _sync_metric_controls(self):
+        selected = self.canvas.selected_metrics
+        if hasattr(self, "metric_combo"):
+            for index in range(self.metric_combo.count()):
+                key = self.metric_combo.itemData(index)
+                self.metric_combo.model().item(index).setCheckState(
+                    Qt.Checked if key in selected or (key == "ALL" and not selected) else Qt.Unchecked)
+            self.metric_combo.setEditable(True)
+            self.metric_combo.lineEdit().setReadOnly(True)
+            labels = [label for label, key in self.METRIC_FILTERS if key in selected]
+            self.metric_combo.lineEdit().setText(
+                ", ".join(labels) if labels else "All Trends (Overview)")
+        if hasattr(self, "button_group"):
+            for index, (_, key) in enumerate(self.METRIC_FILTERS):
+                self.button_group.button(index).setChecked(
+                    key in selected or (key == "ALL" and not selected))
 
     def _on_combo_changed(self, index: int):
         metric_key = self.metric_combo.itemData(index)
@@ -1469,6 +1600,7 @@ class TimeSeriesWidget(QFrame):
 
     def on_metric_selected(self, metric_key: str):
         self.canvas.set_selected_metric(metric_key)
+        self._sync_metric_controls()
 
     def _toggle_fullscreen(self):
         # Open dedicated full-screen dialog without reparenting (avoids black screen & keeps tabs intact)
@@ -1486,6 +1618,14 @@ class TimeSeriesWidget(QFrame):
             selected_metric=current_metric,
             parent=self.window(),
         )
+        target = dialog.chart_widget
+        target.canvas.selected_metrics = list(self.canvas.selected_metrics)
+        target.canvas.selected_metric = self.canvas.selected_metric
+        target._sync_metric_controls()
+        if self._frozen:
+            target.canvas.history_data = copy.deepcopy(self.canvas.history_data)
+            target.history_button.setChecked(True)
+            target.canvas.anchor_ts = self.canvas.anchor_ts
         self.fullscreen_dialog = dialog
 
         def _on_closed(_result=None):
@@ -1493,7 +1633,9 @@ class TimeSeriesWidget(QFrame):
             try:
                 if hasattr(dialog, "chart_widget") and hasattr(dialog.chart_widget, "canvas"):
                     metric = dialog.chart_widget.canvas.selected_metric
-                    self.on_metric_selected(metric)
+                    self.canvas.selected_metric = metric
+                    self.canvas.selected_metrics = list(dialog.chart_widget.canvas.selected_metrics)
+                    self._sync_metric_controls()
                     if hasattr(self, "metric_combo"):
                         for i in range(self.metric_combo.count()):
                             if self.metric_combo.itemData(i) == metric:
@@ -1504,75 +1646,6 @@ class TimeSeriesWidget(QFrame):
 
         dialog.finished.connect(_on_closed)
         dialog.showFullScreen()
-
-    def _generate_baseline_history(self):
-        """
-        Generate 1 hour (3600 seconds) of realistic baseline time-series data
-        covering all mapped voltage profile buses and plant load.
-        """
-        now_ts = time.time()
-        count = 120  # 1 sample every 30 seconds across 3600s
-        history = {
-            "SOC": [],
-            "Grid.Voltage": [],
-            "Grid.BUS_A_Voltage": [],
-            "Grid.BUS_B_Voltage": [],
-            "Grid.BUS_C_Voltage": [],
-            "Network.LoadVoltage": [],
-            "PCS.AC_Voltage": [],
-            "Network.LoadPower": [],
-            "Solar.ActivePower": [],
-            "BESS.ChargePower": [],
-            "BESS.DischargePower": [],
-            "Grid.ImportPower": [],
-            "Grid.ExportPower": [],
-            "Battery.Power": [],
-            "PCS.ActivePowerOutput": [],
-            "Grid.Frequency": [],
-        }
-        for i in range(count):
-            t = (now_ts - 3600) + (i * 30.0)
-            iso_time = datetime.fromtimestamp(t, tz=IST).isoformat()
-
-            soc_val = round(max(20.0, min(95.0, 50.0 + 3.5 * math.cos(i * 0.04))), 1)
-            grid_v = round(33.0 + 0.12 * math.sin(i * 0.1), 2)
-            bus_a = round(433.0 + 1.8 * math.sin(i * 0.10), 1)
-            bus_b = round(433.0 + 1.8 * math.sin(i * 0.10 - 2.094), 1)
-            bus_c = round(433.0 + 1.8 * math.sin(i * 0.10 + 2.094), 1)
-            load_v = round(431.5 + 1.5 * math.cos(i * 0.10), 1)
-            pcs_v = round(432.8 + 1.6 * math.sin(i * 0.10 + 0.5), 1)
-            load_p = round(2100.0 + 180.0 * math.sin(i * 0.08), 1)
-            freq = round(50.0 + 0.03 * math.sin(i * 0.2), 3)
-
-            # Smooth cycling net battery power (Zero vertical cliff jumps)
-            net_batt = 850.0 * math.sin(i * 0.07)
-            bess_chg = round(max(0.0, net_batt), 1)
-            bess_disch = round(max(0.0, -net_batt), 1)
-
-            # Smooth daylight solar profile
-            solar_p = round(max(0.0, 750.0 + 450.0 * math.sin(i * 0.05)), 1)
-            net_grid = load_p - solar_p + bess_chg - bess_disch
-            grid_imp = round(max(0.0, net_grid), 1)
-            grid_exp = round(max(0.0, -net_grid), 1)
-            p_power = round(net_batt, 1)
-
-            history["SOC"].append({"time": t, "timestamp": iso_time, "value": soc_val})
-            history["Grid.Voltage"].append({"time": t, "timestamp": iso_time, "value": grid_v})
-            history["Grid.BUS_A_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_a})
-            history["Grid.BUS_B_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_b})
-            history["Grid.BUS_C_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_c})
-            history["Network.LoadVoltage"].append({"time": t, "timestamp": iso_time, "value": load_v})
-            history["PCS.AC_Voltage"].append({"time": t, "timestamp": iso_time, "value": pcs_v})
-            history["Network.LoadPower"].append({"time": t, "timestamp": iso_time, "value": load_p})
-            history["Solar.ActivePower"].append({"time": t, "timestamp": iso_time, "value": solar_p})
-            history["BESS.ChargePower"].append({"time": t, "timestamp": iso_time, "value": bess_chg})
-            history["BESS.DischargePower"].append({"time": t, "timestamp": iso_time, "value": bess_disch})
-            history["Grid.ImportPower"].append({"time": t, "timestamp": iso_time, "value": grid_imp})
-            history["Grid.ExportPower"].append({"time": t, "timestamp": iso_time, "value": grid_exp})
-            history["Battery.Power"].append({"time": t, "timestamp": iso_time, "value": p_power})
-            history["PCS.ActivePowerOutput"].append({"time": t, "timestamp": iso_time, "value": p_power})
-            history["Grid.Frequency"].append({"time": t, "timestamp": iso_time, "value": freq})
-        return history
 
     def _get_latest_val(self, history_data, key, unit=""):
         pts = history_data.get(key, [])
@@ -1591,6 +1664,8 @@ class TimeSeriesWidget(QFrame):
         and update the chart canvas and badges.
         """
         # Throttle to prevent duplicate polling jitter (from both auto_timer and parent voltage update)
+        if self._frozen:
+            return
         now = time.time()
         if hasattr(self, "_last_poll_time") and (now - self._last_poll_time) < 0.4:
             return
@@ -1605,10 +1680,10 @@ class TimeSeriesWidget(QFrame):
                 all_devices = sim.plant_database.get_all_history(last_seconds=3600.0)
                 ppc_data = all_devices.get("PPC", {})
                 if ppc_data:
-                    history_data = ppc_data
+                    history_data = copy.deepcopy(ppc_data)
                 else:
                     for d_id, d_data in all_devices.items():
-                        history_data.update(d_data)
+                        history_data.update(copy.deepcopy(d_data))
             except Exception:
                 pass
 
@@ -1620,29 +1695,6 @@ class TimeSeriesWidget(QFrame):
                     history_data = disk_data.get("devices", {}).get("PPC", {})
             except Exception:
                 pass
-
-        # Method 3: Fallback baseline if no points recorded yet
-        if not history_data or not any(len(pts) > 0 for pts in history_data.values()):
-            history_data = self._generate_baseline_history()
-
-        # Ensure full 1-hour rolling window (3600 seconds) is populated:
-        all_ts = [float(pt["time"]) for pts in history_data.values() for pt in pts if pt.get("time") is not None]
-        now_ts = time.time()
-        max_ts = max(all_ts) if all_ts else now_ts
-        min_ts = min(all_ts) if all_ts else now_ts
-
-        # If data loaded from disk is older than the rolling window (e.g. from previous run),
-        # shift timestamps to align with current live IST time
-        if all_ts and (now_ts - max_ts > 3600.0):
-            time_shift = now_ts - max_ts
-            for pts in history_data.values():
-                for pt in pts:
-                    if "time" in pt:
-                        pt["time"] = float(pt["time"]) + time_shift
-                        pt["timestamp"] = datetime.fromtimestamp(pt["time"], tz=IST).isoformat()
-            all_ts = [float(pt["time"]) for pts in history_data.values() for pt in pts if pt.get("time") is not None]
-            max_ts = max(all_ts) if all_ts else now_ts
-            min_ts = min(all_ts) if all_ts else now_ts
 
         # Derive BESS Charge and Discharge if missing but Battery.Power exists
         if "Battery.Power" in history_data and ("BESS.ChargePower" not in history_data or not history_data["BESS.ChargePower"]):
@@ -1665,115 +1717,10 @@ class TimeSeriesWidget(QFrame):
         if "PCS.ACVoltage" in history_data and ("PCS.AC_Voltage" not in history_data or not history_data["PCS.AC_Voltage"]):
             history_data["PCS.AC_Voltage"] = history_data["PCS.ACVoltage"]
 
-        # Ensure Network.LoadPower has real positive load values (from live simulator or schedule)
-        if "Network.LoadPower" in history_data and history_data["Network.LoadPower"]:
-            has_pos = any((pt.get("value") or 0) > 10.0 for pt in history_data["Network.LoadPower"])
-            if not has_pos:
-                sim_load = 0.0
-                if sim and hasattr(sim, "plant_database"):
-                    try:
-                        sim_load = float(sim.plant_database.device("PPC").value("Network.LoadPower") or 0.0)
-                    except Exception:
-                        pass
-                active_load = sim_load if sim_load > 100.0 else 1794.0
-                for pt in history_data["Network.LoadPower"]:
-                    pt["value"] = active_load
-
-        # Ensure every configured metric in METRIC_CONFIG has complete 3600s data up to max_ts
-        target_start = max_ts - 3600.0
-        step = 30.0
-
-        for key, cfg in self.canvas.METRIC_CONFIG.items():
-            pts = history_data.get(key, [])
-            if not pts and key == "PCS.AC_Voltage":
-                pts = history_data.get("PCS.ACVoltage", [])
-            nom_min, nom_max = cfg.get("nominal", (0.0, 100.0))
-            nom_mid = (nom_min + nom_max) / 2.0
-
-            if not pts or len(pts) < 2:
-                # Key was completely missing - synthesize full 1-hour waveform connecting to realistic values
-                full_pts = []
-                cur_t = target_start
-                step_idx = 0
-                total_steps = int(3600.0 / step)
-                while cur_t <= max_ts + 1.0:
-                    iso_t = datetime.fromtimestamp(cur_t, tz=IST).isoformat()
-                    if key == "Solar.ActivePower":
-                        v = round(max(0.0, 750.0 + 450.0 * math.sin(step_idx * 0.05)), 1)
-                    elif key == "Grid.BUS_A_Voltage":
-                        v = round(433.0 + 1.8 * math.sin(step_idx * 0.10), 1)
-                    elif key == "Grid.BUS_B_Voltage":
-                        v = round(433.0 + 1.8 * math.sin(step_idx * 0.10 - 2.094), 1)
-                    elif key == "Grid.BUS_C_Voltage":
-                        v = round(433.0 + 1.8 * math.sin(step_idx * 0.10 + 2.094), 1)
-                    elif key == "BESS.ChargePower":
-                        nb = 850.0 * math.sin(step_idx * 0.07)
-                        v = round(max(0.0, nb), 1)
-                    elif key == "BESS.DischargePower":
-                        nb = 850.0 * math.sin(step_idx * 0.07)
-                        v = round(max(0.0, -nb), 1)
-                    elif key == "Grid.ImportPower":
-                        v = round(max(0.0, 1500.0 + 200.0 * math.sin(step_idx * 0.08)), 1)
-                    elif key == "Grid.ExportPower":
-                        v = round(max(0.0, 400.0 + 200.0 * math.cos(step_idx * 0.08)), 1)
-                    elif key == "SOC":
-                        v = round(max(20.0, min(95.0, 50.0 + 3.5 * math.cos(step_idx * 0.04))), 1)
-                    elif key == "Grid.Voltage":
-                        v = round(33.0 + 0.12 * math.sin(step_idx * 0.1), 2)
-                    elif key in ("PCS.AC_Voltage", "PCS.ACVoltage"):
-                        v = round(432.8 + 1.6 * math.sin(step_idx * 0.10 + 0.5), 1)
-                    elif key == "Network.LoadPower":
-                        v = round(2100.0 + 180.0 * math.sin(step_idx * 0.08), 1)
-                    elif key == "Grid.Frequency":
-                        v = round(50.0 + 0.03 * math.sin(step_idx * 0.2), 3)
-                    else:
-                        v = round(nom_mid + (nom_max - nom_min) * 0.1 * math.sin(step_idx * 0.1), 1)
-                    full_pts.append({"time": cur_t, "timestamp": iso_t, "value": v})
-                    cur_t += step
-                    step_idx += 1
-                history_data[key] = full_pts
-            else:
-                first_t = float(pts[0].get("time", max_ts))
-                if first_t - target_start > 45.0:
-                    first_val = pts[0].get("value")
-                    try:
-                        connect_val = float(first_val) if first_val is not None else nom_mid
-                    except (ValueError, TypeError):
-                        connect_val = nom_mid
-                    backfill_pts = []
-                    cur_t = target_start
-                    step_idx = 0
-                    total_steps = max(1, int((first_t - target_start) / step))
-                    while cur_t < first_t:
-                        progress = step_idx / total_steps
-                        iso_t = datetime.fromtimestamp(cur_t, tz=IST).isoformat()
-                        # Fade oscillation amplitude to ZERO at first_t to guarantee smooth connection
-                        fade = 1.0 - progress
-                        if key == "SOC":
-                            base_v = (connect_val - 2.5 * fade)
-                            v = round(base_v + 0.06 * math.sin(step_idx * 0.2) * fade, 2)
-                        elif key in ("Grid.BUS_A_Voltage", "Grid.BUS_B_Voltage", "Grid.BUS_C_Voltage", "PCS.AC_Voltage", "PCS.ACVoltage"):
-                            phase_shift = 0.0 if "A" in key else (2.094 if "B" in key else 4.188)
-                            v = round(connect_val + 1.8 * math.sin(step_idx * 0.15 + phase_shift) * fade, 1)
-                        elif key == "Solar.ActivePower":
-                            v = round(max(0.0, connect_val + 60.0 * math.sin(step_idx * 0.1) * fade), 1)
-                        elif key in ("BESS.ChargePower", "BESS.DischargePower"):
-                            v = round(max(0.0, connect_val + 40.0 * math.sin(step_idx * 0.1) * fade), 1)
-                        elif key in ("Grid.ImportPower", "Grid.ExportPower"):
-                            v = round(max(0.0, connect_val + 50.0 * math.sin(step_idx * 0.1) * fade), 1)
-                        elif key == "Grid.Voltage":
-                            v = round(connect_val + 0.1 * math.sin(step_idx * 0.12) * fade, 2)
-                        elif key == "Grid.Frequency":
-                            v = round(connect_val + 0.02 * math.sin(step_idx * 0.2) * fade, 3)
-                        elif key == "Network.LoadPower":
-                            target_load = connect_val if connect_val > 100.0 else 1794.0
-                            v = round(max(0.0, target_load + 20.0 * math.sin(step_idx * 0.08) * fade), 1)
-                        else:
-                            v = round(connect_val + 15.0 * math.sin(step_idx * 0.1) * fade, 1)
-                        backfill_pts.append({"time": cur_t, "timestamp": iso_t, "value": v})
-                        cur_t += step
-                        step_idx += 1
-                    history_data[key] = backfill_pts + pts
+        for key, sign in (("BESS.ChargePower", -1), ("BESS.DischargePower", 1)):
+            for point in history_data.get(key, []):
+                if point.get("value") is not None:
+                    point["value"] = sign * abs(float(point["value"]))
 
         if history_data:
             self.canvas.update_history(history_data, window_seconds=3600.0)
