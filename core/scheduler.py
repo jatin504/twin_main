@@ -99,8 +99,12 @@ class Scheduler:
             except Exception:
                 pass
 
-            if self.reverse_thread:
-                self.reverse_thread.join()
+            if self.reverse_thread and self.reverse_thread.is_alive():
+                try:
+                    self.reverse_thread.join(timeout=1.0)
+                except Exception:
+                    pass
+            self.reverse_thread = None
 
             for model in self.models:
                 model.shutdown()
@@ -108,17 +112,28 @@ class Scheduler:
     def stop(self):
         self.running = False
 
-        if self.reverse_thread:
-            self.reverse_thread.join()
+        if self.reverse_thread and self.reverse_thread.is_alive():
+            try:
+                self.reverse_thread.join(timeout=1.0)
+            except Exception:
+                pass
+        self.reverse_thread = None
 
         for model in self.models:
             model.shutdown()
 
+    def clear(self):
+        self.models.clear()
+
     def reset(self):
         self.running = False
 
-        if self.reverse_thread:
-            self.reverse_thread.join()
+        if self.reverse_thread and self.reverse_thread.is_alive():
+            try:
+                self.reverse_thread.join(timeout=1.0)
+            except Exception:
+                pass
+        self.reverse_thread = None
 
         for model in self.models:
             model.initialize()

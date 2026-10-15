@@ -30,6 +30,13 @@ class NetworkManager:
     def initialize(self):
 
         self.backend.initialize(self.topology, self.db)
+        try:
+            self.update_inputs()
+            self.backend.solve()
+            self.update_outputs()
+            self.update_voltage_profile()
+        except Exception:
+            pass
 
     def update(self):
 

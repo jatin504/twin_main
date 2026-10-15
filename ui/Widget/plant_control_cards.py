@@ -6,20 +6,28 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QDoubleSpinBox,
     QPushButton,
+    QScrollArea,
 )
 from PySide6.QtCore import Qt
 
 
 class PlantControlCard(QFrame):
 
-    def __init__(self, initial_values=None, parent=None):
+    def __init__(
+        self,
+        transformer_id="T1",
+        initial_values=None,
+        parent=None,
+    ):
         super().__init__(parent)
+
+        self.transformer_id = transformer_id
 
         initial_values = initial_values or {}
         r_pu = float(initial_values.get("r_pu", 0.01))
         x_pu = float(initial_values.get("x_pu", 0.04))
 
-        self.setFixedSize(270, 190)
+        self.setFixedSize(270, 210)
 
         self.setStyleSheet("""
             QFrame {
@@ -28,10 +36,14 @@ class PlantControlCard(QFrame):
                 border-radius: 8px;
             }
 
-            QLabel#title {
-                color: #172B4D;
-                font-size: 15px;
+            QLabel#transformerTitle {
+                color: #FFFFFF;
+                font-size: 13px;
                 font-weight: 700;
+                background: #2563EB;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 10px;
             }
 
             QLabel#fieldLabel {
@@ -69,6 +81,19 @@ class PlantControlCard(QFrame):
         layout.setSpacing(5)
 
         # ==================================================
+        # TRANSFORMER ID TITLE
+        # ==================================================
+
+        title_label = QLabel(
+            f"🔌  {self.transformer_id}"
+        )
+        title_label.setObjectName("transformerTitle")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setFixedHeight(28)
+
+        layout.addWidget(title_label)
+
+        # ==================================================
         # R / X LABELS
         # ==================================================
 
@@ -92,12 +117,9 @@ class PlantControlCard(QFrame):
         # R / X VALUES
         # ==================================================
 
-        impedance_values = QHBoxLayout()
-        impedance_values.setSpacing(6)
-
         self.r_input = QDoubleSpinBox()
         self.r_input.setRange(0.0, 10.0)
-        self.r_input.setDecimals(2)
+        self.r_input.setDecimals(4)
         self.r_input.setSingleStep(0.01)
         self.r_input.setValue(r_pu)
         self.r_input.setButtonSymbols(
@@ -106,15 +128,12 @@ class PlantControlCard(QFrame):
 
         self.x_input = QDoubleSpinBox()
         self.x_input.setRange(0.0, 10.0)
-        self.x_input.setDecimals(2)
+        self.x_input.setDecimals(4)
         self.x_input.setSingleStep(0.01)
         self.x_input.setValue(x_pu)
         self.x_input.setButtonSymbols(
             QDoubleSpinBox.NoButtons
         )
-
-        impedance_values.addWidget(self.r_input)
-        impedance_values.addWidget(self.x_input)
 
         # Unit boxes
         r_unit = QLabel("pu")
@@ -221,14 +240,32 @@ class PlantControlCard(QFrame):
             "x_pu": self.x_input.value(),
         }
 
-class PlantControlCards(QWidget):
+    def get_transformer_id(self):
+        return self.transformer_id
 
-    def __init__(self, initial_values=None, parent=None):
+
+class PlantControlCards(QWidget):
+    """
+    Dynamically creates one PlantControlCard per transformer
+    found in the YAML data.
+    """
+
+    def __init__(
+        self,
+        transformer_list=None,
+        parent=None,
+    ):
         super().__init__(parent)
 
-        initial_values = initial_values or {}
+        # transformer_list is a list of dicts:
+        # [
+        #   {"id": "T1", "r_pu": 0.01, "x_pu": 0.04},
+        #   {"id": "T2", "r_pu": 0.01, "x_pu": 0.04},
+        #   ...
+        # ]
+        transformer_list = transformer_list or []
 
-        self.setFixedHeight(200)
+        self.setFixedHeight(220)
 
         layout = QHBoxLayout(self)
 
@@ -241,17 +278,49 @@ class PlantControlCards(QWidget):
 
         layout.setSpacing(8)
 
-        # ONLY ONE CARD
+        # ==================================================
+        # DYNAMIC TRANSFORMER CARDS
+        # ==================================================
 
-        self.transformer_card = PlantControlCard(
-            initial_values=initial_values
-        )
+        self.cards = {}
 
-        layout.addWidget(
-            self.transformer_card
-        )
+        for tx in transformer_list:
+            tx_id = tx.get("id", "T?")
+
+            card = PlantControlCard(
+                transformer_id=tx_id,
+                initial_values={
+                    "r_pu": tx.get("r_pu", 0.01),
+                    "x_pu": tx.get("x_pu", 0.04),
+                },
+            )
+
+            self.cards[tx_id] = card
+
+            layout.addWidget(card)
 
         layout.addStretch()
 
+    def get_all_impedances(self):
+        """
+        Returns a dict keyed by transformer ID:
+        {
+            "T1": {"r_pu": 0.01, "x_pu": 0.04},
+            "T2": {"r_pu": 0.01, "x_pu": 0.04},
+            ...
+        }
+        """
+        result = {}
+        for tx_id, card in self.cards.items():
+            result[tx_id] = card.get_impedance()
+        return result
+
     def get_impedance(self):
-        return self.transformer_card.get_impedance()
+        """
+        Backward-compatible: returns first card's impedance.
+        Prefer get_all_impedances() for multi-transformer use.
+        """
+        if self.cards:
+            first_card = next(iter(self.cards.values()))
+            return first_card.get_impedance()
+        return {"r_pu": 0.01, "x_pu": 0.04}

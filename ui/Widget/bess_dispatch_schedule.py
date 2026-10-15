@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont
@@ -57,11 +57,14 @@ class BessDispatchScheduleWidget(QFrame):
     }
     """
 
+    event_started = Signal(dict)
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.setObjectName("BessDispatchScheduleWidget")
         self.setFixedSize(630, 250)
+        self._last_notified_event_id = None
 
         self.schedule_data = []
         self.result_data = {}
@@ -74,6 +77,8 @@ class BessDispatchScheduleWidget(QFrame):
         self.running_event_id = None
         self.manual_running_event_id = None
         self.manual_running_timestamp = None
+        self.running_timestamp = None
+        self.event_start_dt = None
         self.elapsed_seconds = 0
         self.current_window_load = []
         self.schedule_rows = []
@@ -127,10 +132,10 @@ class BessDispatchScheduleWidget(QFrame):
 
         header = QHBoxLayout()
         header.setContentsMargins(3, 0, 3, 0)
-        header.setSpacing(4)
-        header_widget = QWidget()
-        header_widget.setFixedHeight(40)
-        header_widget.setLayout(header)
+        header.setSpacing(6)
+        self.header_widget = QWidget()
+        self.header_widget.setFixedHeight(40)
+        self.header_widget.setLayout(header)
 
         calendar = QLabel("▣")
         calendar.setFixedWidth(20)
@@ -154,12 +159,30 @@ class BessDispatchScheduleWidget(QFrame):
         header.addWidget(title)
         header.addStretch(1)
 
-        time_box = QVBoxLayout()
-        time_box.setContentsMargins(0, 0, 0, 0)
-        time_box.setSpacing(0)
+        # Dedicated horizontal elapsed badge - placed separately to NEVER overlap with clock
+        self.elapsed_time_top = QLabel("Elapsed: 00:00 / 15m")
+        self.elapsed_time_top.setAlignment(Qt.AlignCenter)
+        self.elapsed_time_top.setStyleSheet("""
+            QLabel {
+                color: #D97706;
+                background: #FFFBEB;
+                border: 1px solid #FDE68A;
+                border-radius: 4px;
+                font-size: 9px;
+                font-weight: 700;
+                padding: 2px 6px;
+            }
+        """)
+        header.addWidget(self.elapsed_time_top)
+        header.addSpacing(6)
+
+        # Dedicated clock box - strictly 2 lines (time and date) so they NEVER collide
+        self.time_box = QVBoxLayout()
+        self.time_box.setContentsMargins(0, 0, 4, 0)
+        self.time_box.setSpacing(1)
 
         self.time_label = QLabel("15:52")
-        self.time_label.setAlignment(Qt.AlignRight)
+        self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.time_label.setStyleSheet("""
             QLabel {
                 color: #1671D9;
@@ -168,31 +191,21 @@ class BessDispatchScheduleWidget(QFrame):
             }
         """)
 
-        self.elapsed_time_top = QLabel("Elapsed: 00:00 / 15m")
-        self.elapsed_time_top.setAlignment(Qt.AlignRight)
-        self.elapsed_time_top.setStyleSheet("""
-            QLabel {
-                color: #D97706;
-                font-size: 7px;
-                font-weight: 700;
-            }
-        """)
-
         self.date_label = QLabel("29 Sep 2025")
-        self.date_label.setAlignment(Qt.AlignRight)
+        self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.date_label.setStyleSheet("""
             QLabel {
                 color: #526170;
-                font-size: 7px;
+                font-size: 8px;
                 font-weight: 600;
             }
         """)
 
-        time_box.addWidget(self.time_label)
-        time_box.addWidget(self.elapsed_time_top)
-        time_box.addWidget(self.date_label)
+        self.time_box.addWidget(self.time_label)
+        self.time_box.addWidget(self.date_label)
 
-        header.addLayout(time_box)
+        header.addLayout(self.time_box)
+        header.addSpacing(4)
         self.fullscreen_button = QToolButton()
         self.fullscreen_button.setText("⛶")
         self.fullscreen_button.setFixedSize(22, 22)
@@ -215,7 +228,7 @@ class BessDispatchScheduleWidget(QFrame):
         """)
         self.fullscreen_button.clicked.connect(self._toggle_fullscreen)
         header.addWidget(self.fullscreen_button)
-        root.addWidget(header_widget)
+        root.addWidget(self.header_widget)
 
         # DEDICATED ACTIVE EVENT BANNER (Prominent & Never overlaps)
         self.running_event_badge = QFrame()
@@ -295,15 +308,15 @@ class BessDispatchScheduleWidget(QFrame):
         schedule_header.setSpacing(0)
         schedule_frame.setFixedHeight(18)
 
-        self._add_header_cell(schedule_header, "Event ID", 78)
-        self._add_header_cell(schedule_header, "Time", 40)
-        self._add_header_cell(schedule_header, "Load (kW)", 50)
-        self._add_header_cell(schedule_header, "Tariff", 46)
-        self._add_header_cell(schedule_header, "Decision", 60)
-        self._add_header_cell(schedule_header, "Dispatch", 50)
-        self._add_header_cell(schedule_header, "Energy (MWh)", 56)
-        self._add_header_cell(schedule_header, "Cycles", 46)
-        self._add_header_cell(schedule_header, "Target SoC", 50)
+        self._add_header_cell(schedule_header, "Event ID", 95)
+        self._add_header_cell(schedule_header, "Time", 68)
+        self._add_header_cell(schedule_header, "Load (kW)", 46)
+        self._add_header_cell(schedule_header, "Tariff", 40)
+        self._add_header_cell(schedule_header, "Decision", 58)
+        self._add_header_cell(schedule_header, "Dispatch", 48)
+        self._add_header_cell(schedule_header, "Exp / Act (MWh)", 78)
+        self._add_header_cell(schedule_header, "Cycles", 42)
+        self._add_header_cell(schedule_header, "Target SoC", 48)
         self._add_header_cell(schedule_header, "Status", 54)
 
         root.addWidget(schedule_frame)
@@ -524,35 +537,120 @@ class BessDispatchScheduleWidget(QFrame):
         self.json_timer.timeout.connect(self._on_timer_tick)
         self.json_timer.start(1000)
 
-    def _on_timer_tick(self):
-        self.check_json_update()
-        if self.running_event_id:
-            self.elapsed_seconds += 1
-            # An event interval runs and ends in 15 minutes (or len(window_load) elements)
-            total_elements = len(self.current_window_load) if self.current_window_load else 15
-            total_window_seconds = total_elements * 60
+    @property
+    def schedule(self):
+        """Expose schedule list for backwards compatibility."""
+        return self.schedule_data
 
-            cur_sec = self.elapsed_seconds % max(1, total_window_seconds)
-            current_step = min(total_elements, (cur_sec // 60) + 1)
-            remaining_mins = max(0, total_elements - current_step)
+    @staticmethod
+    def _parse_timestamp(val):
+        """Parse timestamp from diverse formats (ISO, space, time-only, numeric seconds)."""
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return val
+        s = str(val).strip()
+        if not s:
+            return None
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y/%m/%d %H:%M:%S",
+            "%d-%m-%Y %H:%M:%S",
+        ):
+            try:
+                return datetime.strptime(s.split("+")[0].split("Z")[0], fmt)
+            except ValueError:
+                pass
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            pass
+        try:
+            parts = [int(p) for p in s.split(":")]
+            if len(parts) == 3:
+                return timedelta(hours=parts[0], minutes=parts[1], seconds=parts[2])
+            elif len(parts) == 2:
+                return timedelta(minutes=parts[0], seconds=parts[1])
+        except Exception:
+            pass
+        return None
+
+    @classmethod
+    def _compute_elapsed_seconds(cls, start_raw, curr_raw):
+        """Calculate elapsed seconds strictly from timestamps rather than workload matching."""
+        sp = cls._parse_timestamp(start_raw)
+        cp = cls._parse_timestamp(curr_raw)
+        if cp is None:
+            return 0
+        if isinstance(cp, (int, float)):
+            return max(0, int(cp))
+        if isinstance(cp, timedelta):
+            return max(0, int(cp.total_seconds()))
+        if isinstance(sp, datetime) and isinstance(cp, datetime):
+            diff = (cp - sp).total_seconds()
+            if 0 <= diff <= 86400:
+                return int(diff)
+            # When calendar dates differ (e.g. historical schedule vs live test date), compare time-of-day:
+            curr_tod = cp.hour * 3600 + cp.minute * 60 + cp.second
+            start_tod = sp.hour * 3600 + sp.minute * 60 + sp.second
+            tod_diff = curr_tod - start_tod
+            if 0 <= tod_diff < 86400:
+                return int(tod_diff)
+            elif tod_diff < 0 and (tod_diff + 86400) < 1800:
+                return int(tod_diff + 86400)
+        return 0
+
+    def get_current_sim_datetime(self):
+        """Return the current simulation datetime aligned with the active event timeline."""
+        start_dt = getattr(self, "event_start_dt", None)
+        if not isinstance(start_dt, datetime):
+            if self.running_row_index is not None and self.schedule_data and 0 <= self.running_row_index < len(self.schedule_data):
+                ts = self.schedule_data[self.running_row_index].get("time_stamp")
+                if ts:
+                    parsed = self._parse_timestamp(ts)
+                    if isinstance(parsed, datetime):
+                        start_dt = parsed
+                        self.event_start_dt = parsed
+        if not isinstance(start_dt, datetime):
+            if self.schedule_data and self.schedule_data[0].get("time_stamp"):
+                parsed = self._parse_timestamp(self.schedule_data[0]["time_stamp"])
+                if isinstance(parsed, datetime):
+                    start_dt = parsed
+        if not isinstance(start_dt, datetime):
+            start_dt = datetime(2026, 9, 22, 0, 0, 0)
+        return start_dt + timedelta(seconds=self.elapsed_seconds)
+
+    def _update_timing_display(self):
+        """Update elapsed badges, top timer, and profile load from elapsed time."""
+        if self.running_event_id:
+            # The dispatch event interval is always strictly 15 minutes (900 seconds)
+            total_window_seconds = 15 * 60
+
+            cur_sec = min(total_window_seconds, max(0, self.elapsed_seconds))
+            current_step = min(15, (cur_sec // 60) + 1)
+            remaining_mins = max(0, 15 - (cur_sec // 60))
             el_m = cur_sec // 60
             el_s = cur_sec % 60
-            tot_m = total_elements
 
             elapsed_str = f"{el_m:02d}:{el_s:02d}"
-            tot_str = f"{tot_m:02d}:00"
+            tot_str = "15:00"
 
             if hasattr(self, "running_elapsed_badge"):
                 self.running_elapsed_badge.setText(
-                    f"ELAPSED: {elapsed_str} / {tot_str}  |  REMAINING: {remaining_mins}m (Step {current_step}/{tot_m})"
+                    f"ELAPSED: {elapsed_str} / {tot_str}  |  REMAINING: {remaining_mins}m (Step {current_step}/15)"
                 )
                 self.running_elapsed_badge.show()
             if hasattr(self, "elapsed_time_top"):
-                self.elapsed_time_top.setText(f"Elapsed: {elapsed_str} / {tot_m}m")
+                self.elapsed_time_top.setText(f"Elapsed: {elapsed_str} / 15m")
                 self.elapsed_time_top.show()
 
-            if self.current_window_load and (current_step - 1) < len(self.current_window_load):
-                val = self.current_window_load[current_step - 1]
+            if self.current_window_load:
+                idx = int((current_step - 1) * len(self.current_window_load) / 15)
+                idx = max(0, min(idx, len(self.current_window_load) - 1))
+                val = self.current_window_load[idx]
                 if hasattr(self, "current_load_value"):
                     self.current_load_value.setText(f"{float(val):.0f} kW")
         else:
@@ -561,28 +659,61 @@ class BessDispatchScheduleWidget(QFrame):
             if hasattr(self, "elapsed_time_top"):
                 self.elapsed_time_top.hide()
 
+    def _on_timer_tick(self):
+        self.check_json_update()
+        if self.running_event_id:
+            if isinstance(self.event_start_dt, datetime):
+                now = datetime.now()
+                if self.event_start_dt.date() == now.date():
+                    diff = (now - self.event_start_dt).total_seconds()
+                    if 0 <= diff <= 900:
+                        self.elapsed_seconds = int(diff)
+                    elif diff > 900:
+                        self.elapsed_seconds = 900
+                    else:
+                        self.elapsed_seconds = 0
+                else:
+                    self.elapsed_seconds = min(900, self.elapsed_seconds + 1)
+            else:
+                self.elapsed_seconds = min(900, self.elapsed_seconds + 1)
+            self._update_timing_display()
+
     # =============================================================
     # KPI CARD
     # =============================================================
 
     def _set_fullscreen_fonts(self, fullscreen):
         if fullscreen:
+            if hasattr(self, "header_widget"):
+                self.header_widget.setFixedHeight(48)
+            if hasattr(self, "time_box"):
+                self.time_box.setSpacing(2)
             self.time_label.setStyleSheet("""
                 QLabel {
                     color: #1671D9;
-                    font-size: 24px;
+                    font-size: 18px;
                     font-weight: 800;
                 }
             """)
             self.date_label.setStyleSheet("""
                 QLabel {
                     color: #526170;
-                    font-size: 11px;
+                    font-size: 10px;
                     font-weight: 600;
                 }
             """)
             if hasattr(self, "elapsed_time_top"):
-                self.elapsed_time_top.setStyleSheet("color: #D97706; font-size: 12px; font-weight: 700;")
+                self.elapsed_time_top.setStyleSheet("""
+                    QLabel {
+                        color: #D97706;
+                        background: #FFFBEB;
+                        border: 1px solid #FDE68A;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        padding: 3px 8px;
+                    }
+                """)
             if hasattr(self, "running_elapsed_badge"):
                 self.running_elapsed_badge.setStyleSheet("color: #B45309; font-size: 11px; font-weight: 800; border: none;")
             self.current_load_value.setStyleSheet("""
@@ -629,20 +760,37 @@ class BessDispatchScheduleWidget(QFrame):
             self._update_running_event_badge()
             return
 
+        if hasattr(self, "header_widget"):
+            self.header_widget.setFixedHeight(40)
+        if hasattr(self, "time_box"):
+            self.time_box.setSpacing(1)
+
         self.time_label.setStyleSheet("""
             QLabel {
                 color: #1671D9;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 800;
             }
         """)
         self.date_label.setStyleSheet("""
             QLabel {
                 color: #526170;
-                font-size: 6px;
+                font-size: 8px;
                 font-weight: 600;
             }
         """)
+        if hasattr(self, "elapsed_time_top"):
+            self.elapsed_time_top.setStyleSheet("""
+                QLabel {
+                    color: #D97706;
+                    background: #FFFBEB;
+                    border: 1px solid #FDE68A;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    font-weight: 700;
+                    padding: 2px 6px;
+                }
+            """)
         self.current_load_value.setStyleSheet("""
             QLabel {
                 color: #263746;
@@ -691,6 +839,22 @@ class BessDispatchScheduleWidget(QFrame):
             )
         self._update_running_event_badge()
 
+    def _notify_event_if_new(self, event_id, decision="", load=0.0, time_stamp="", soc=50.0):
+        """Emit notification signal when an event starts or timestamp transitions."""
+        if not event_id:
+            return
+        notification_key = (event_id, time_stamp)
+        if getattr(self, "_last_notified_key", None) != notification_key:
+            self._last_notified_key = notification_key
+            self._last_notified_event_id = event_id
+            self.event_started.emit({
+                "event_id": event_id,
+                "decision": decision,
+                "load": load,
+                "time_stamp": time_stamp,
+                "soc": soc,
+            })
+
     def _toggle_fullscreen(self):
         if self.fullscreen_dialog is not None:
             self.fullscreen_dialog.close()
@@ -704,10 +868,13 @@ class BessDispatchScheduleWidget(QFrame):
         self._fullscreen_geometry = self.geometry()
 
         dialog = QDialog(parent.window())
-        dialog.setWindowTitle("BESS Dispatch Schedule")
+        dialog.setWindowFlags(Qt.Window)
+        dialog.setWindowTitle("BESS Dispatch Schedule (Fullscreen)")
+        dialog.setStyleSheet("QDialog { background: #FFFFFF; }")
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.addWidget(self)
+        dialog.keyPressEvent = lambda e: dialog.close() if e.key() == Qt.Key_Escape else QDialog.keyPressEvent(dialog, e)
         dialog.finished.connect(
             lambda _result, active_dialog=dialog:
                 self._restore_from_fullscreen(active_dialog)
@@ -719,7 +886,7 @@ class BessDispatchScheduleWidget(QFrame):
         self.schedule_scroll.setFixedHeight(250)
         self._set_fullscreen_fonts(True)
         self.fullscreen_button.setText("✕")
-        self.fullscreen_button.setToolTip("Exit fullscreen")
+        self.fullscreen_button.setToolTip("Exit fullscreen (Esc)")
         dialog.showFullScreen()
 
     def _restore_from_fullscreen(self, dialog):
@@ -902,7 +1069,9 @@ class BessDispatchScheduleWidget(QFrame):
             self.update_details(active_target_item)
 
         if running_idx is not None and self.manual_active_index is None:
-            QTimer.singleShot(100, lambda idx=running_idx: self._scroll_to_row(idx))
+            if running_idx != getattr(self, "_last_scrolled_idx", None):
+                self._last_scrolled_idx = running_idx
+                QTimer.singleShot(100, lambda idx=running_idx: self._scroll_to_row(idx))
         elif (
             self.current_twin_load is not None
             or self.manual_active_index is not None
@@ -912,33 +1081,15 @@ class BessDispatchScheduleWidget(QFrame):
     def update_twin_load(self, load_kw):
         self.current_twin_load = float(load_kw)
 
-        # Sync step and remaining minutes if twin load matches window_load elements
-        if self.current_window_load:
-            best_step_idx = None
-            min_step_diff = float("inf")
-            for idx, w_val in enumerate(self.current_window_load):
-                diff = abs(float(w_val) - self.current_twin_load)
-                if diff < min_step_diff:
-                    min_step_diff = diff
-                    best_step_idx = idx
-
-            # If closely matching current window_load elements (within 35 kW)
-            if best_step_idx is not None and min_step_diff <= 35.0:
-                tot_elem = len(self.current_window_load)
-                current_step = best_step_idx + 1
-                remaining_mins = max(0, tot_elem - current_step)
-                sec_in_min = self.elapsed_seconds % 60
-                self.elapsed_seconds = best_step_idx * 60 + sec_in_min
-                el_m = self.elapsed_seconds // 60
-                el_s = self.elapsed_seconds % 60
-                elapsed_str = f"{el_m:02d}:{el_s:02d}"
-                tot_str = f"{tot_elem:02d}:00"
-                if hasattr(self, "running_elapsed_badge"):
-                    self.running_elapsed_badge.setText(
-                        f"ELAPSED: {elapsed_str} / {tot_str}  |  REMAINING: {remaining_mins}m (Step {current_step}/{tot_elem})"
-                    )
-                if hasattr(self, "elapsed_time_top"):
-                    self.elapsed_time_top.setText(f"Elapsed: {elapsed_str} / {tot_elem}m")
+        # Update event load display smoothly based on 15-minute event progress
+        if self.running_event_id and self.current_window_load:
+            cur_sec = min(900, max(0, self.elapsed_seconds))
+            current_step = min(15, (cur_sec // 60) + 1)
+            idx = int((current_step - 1) * len(self.current_window_load) / 15)
+            idx = max(0, min(idx, len(self.current_window_load) - 1))
+            val = self.current_window_load[idx]
+            if hasattr(self, "current_load_value"):
+                self.current_load_value.setText(f"{float(val):.0f} kW")
 
         self._update_active_row()
 
@@ -955,22 +1106,10 @@ class BessDispatchScheduleWidget(QFrame):
                 return
             self.manual_active_index = None
 
-        if self.current_twin_load is None:
-            return
-
-        best_index = None
-        best_difference = float("inf")
-
-        for index, item in enumerate(self.schedule_data):
-            schedule_load = self._number(item.get("load", 0))
-            difference = abs(schedule_load - self.current_twin_load)
-
-            if difference < best_difference:
-                best_difference = difference
-                best_index = index
-
-        if best_index is not None:
-            self._refresh_schedule_active_row(best_index, force=force)
+        # Highlight the currently running event row (or first row if none running)
+        target_index = self.running_row_index if self.running_row_index is not None else 0
+        if 0 <= target_index < len(self.schedule_data):
+            self._refresh_schedule_active_row(target_index, force=force)
 
     def _select_schedule_row(self, index):
         if not 0 <= index < len(self.schedule_data):
@@ -1004,6 +1143,8 @@ class BessDispatchScheduleWidget(QFrame):
                 )
             self.active_row_index = active_index
             self._set_schedule_row_active(active_index, True)
+        elif not force:
+            return
 
         if 0 <= active_index < len(self.schedule_data):
             active_item = self.schedule_data[active_index]
@@ -1199,10 +1340,9 @@ class BessDispatchScheduleWidget(QFrame):
         labels["dispatch"].setText(
             f"{self._number(item.get('dispatch', 0)) * 0.25:.0f}"
         )
-        energy_val = actual_energy if actual_energy is not None else item.get("expected_energy", 0)
-        labels["available_energy"].setText(
-            f"{self._number(energy_val):.2f}"
-        )
+        expected_energy = item.get("expected_energy", item.get("battery_energy_mwh", 0))
+        exp_act_display = f"{self._number(expected_energy):.2f} / {actual_energy_text}"
+        labels["available_energy"].setText(exp_act_display)
         labels["cycle_count"].setText(
             f"{self._number(item.get('cycle_count', 0)):.3f}"
         )
@@ -1231,28 +1371,29 @@ class BessDispatchScheduleWidget(QFrame):
         row.setStyleSheet(self._get_row_style(item, active=active))
 
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(3, 0, 3, 0)
+        layout.setContentsMargins(6, 0, 2, 0)
         layout.setSpacing(0)
 
         status_text = str(item.get("status", "SCHEDULED")).upper()
 
         event_id = QLabel(str(item.get("event_id", "—")))
-        event_id.setFixedWidth(78)
-        event_id.setAlignment(Qt.AlignCenter)
+        event_id.setFixedWidth(95)
+        event_id.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        event_id.setContentsMargins(2, 0, 0, 0)
 
         time = QLabel(str(item.get("time", "")))
-        time.setFixedWidth(40)
+        time.setFixedWidth(68)
         time.setAlignment(Qt.AlignCenter)
 
         load = QLabel(
             f"{self._number(item.get('load', 0)):.0f}"
         )
-        load.setFixedWidth(50)
+        load.setFixedWidth(46)
         load.setAlignment(Qt.AlignCenter)
 
         tariff_val = item.get("tariff_per_kw", item.get("tariff", 0.0))
         tariff = QLabel(f"{self._number(tariff_val):.1f}")
-        tariff.setFixedWidth(46)
+        tariff.setFixedWidth(40)
         tariff.setAlignment(Qt.AlignCenter)
 
         decision_text = str(
@@ -1260,33 +1401,37 @@ class BessDispatchScheduleWidget(QFrame):
         ).upper()
 
         decision = QLabel(decision_text)
-        decision.setFixedWidth(60)
+        decision.setFixedWidth(58)
         decision.setAlignment(Qt.AlignCenter)
 
         dispatch = QLabel(
             f"{self._number(item.get('dispatch', 0)) * 0.25:.0f}"
         )
-        dispatch.setFixedWidth(50)
+        dispatch.setFixedWidth(48)
         dispatch.setAlignment(Qt.AlignCenter)
 
         actual_energy = item.get("actual_energy")
-        energy_val = actual_energy if actual_energy is not None else item.get("expected_energy", 0)
-        available_energy = QLabel(
-            f"{self._number(energy_val):.2f}"
+        actual_energy_text = (
+            f"{self._number(actual_energy):.2f}"
+            if actual_energy is not None
+            else "—"
         )
-        available_energy.setFixedWidth(56)
+        expected_energy = item.get("expected_energy", item.get("battery_energy_mwh", 0))
+        exp_act_display = f"{self._number(expected_energy):.2f} / {actual_energy_text}"
+        available_energy = QLabel(exp_act_display)
+        available_energy.setFixedWidth(78)
         available_energy.setAlignment(Qt.AlignCenter)
 
         cycle_count = QLabel(
             f"{self._number(item.get('cycle_count', 0)):.3f}"
         )
-        cycle_count.setFixedWidth(46)
+        cycle_count.setFixedWidth(42)
         cycle_count.setAlignment(Qt.AlignCenter)
 
         target_soc = QLabel(
             f"{self._number(item.get('soc', 0)):.1f}%"
         )
-        target_soc.setFixedWidth(50)
+        target_soc.setFixedWidth(48)
         target_soc.setAlignment(Qt.AlignCenter)
 
         status_label = QLabel(status_text)
@@ -1411,7 +1556,6 @@ class BessDispatchScheduleWidget(QFrame):
         self.manual_running_event_id = event_id
         self.manual_running_timestamp = time_stamp
         self.running_event_id = event_id
-        self._update_running_event_badge()
         if self.schedule_data:
             running_idx = None
             for idx, item in enumerate(self.schedule_data):
@@ -1424,11 +1568,36 @@ class BessDispatchScheduleWidget(QFrame):
                 elif item.get("status") == "RUNNING":
                     item["status"] = "UPCOMING"
                 self._update_schedule_row(idx, item)
-            self._update_running_event_badge()
+
             if running_idx is not None:
                 self.running_row_index = running_idx
+                event_item = self.schedule_data[running_idx]
+                self.current_window_load = event_item.get("window_load", [])
+                start_raw = time_stamp or event_item.get("time_stamp")
+                if start_raw:
+                    parsed = self._parse_timestamp(start_raw)
+                    if isinstance(parsed, datetime):
+                        self.event_start_dt = parsed
+                if isinstance(self.event_start_dt, datetime):
+                    now = datetime.now()
+                    if self.event_start_dt.date() == now.date():
+                        diff = (now - self.event_start_dt).total_seconds()
+                        self.elapsed_seconds = int(diff) if 0 <= diff <= 900 else 0
+                    else:
+                        self.elapsed_seconds = 0
+                else:
+                    self.elapsed_seconds = 0
+                self._update_timing_display()
                 self._refresh_schedule_active_row(running_idx, force=True)
                 QTimer.singleShot(100, lambda i=running_idx: self._scroll_to_row(i))
+                self._notify_event_if_new(
+                    event_id,
+                    event_item.get("decision", ""),
+                    event_item.get("load", 0),
+                    time_stamp=event_item.get("time_stamp", ""),
+                    soc=event_item.get("soc", 50.0),
+                )
+        self._update_running_event_badge()
 
     def load_json(self, file_path):
         import json
@@ -1470,39 +1639,76 @@ class BessDispatchScheduleWidget(QFrame):
                     if eid:
                         outcomes_by_event_id[eid] = result
 
-        # Check explicit top-level running configuration in json
-        explicit_running_id = data.get("running_event_id") or data.get("active_event_id")
-        explicit_running_ts = data.get("running_timestamp") or data.get("running_time_stamp")
+        # Explicit top-level running configuration in json
+        detected_running_id = data.get("running_event_id") or self.manual_running_event_id
+        detected_running_ts = data.get("running_timestamp") or self.manual_running_timestamp
 
-        detected_running_id = explicit_running_id or self.manual_running_event_id
-        detected_running_ts = explicit_running_ts or self.manual_running_timestamp
+        # Determine target running row index strictly from event ID and timestamps
+        target_running_row_index = None
 
-        # Detect if any result in results array is currently running (in-progress)
-        if not detected_running_id and not detected_running_ts:
+        # 1. Match by running timestamp first if provided (allows dynamic time stepping from JSON)
+        if detected_running_ts:
+            for i, rec in enumerate(records):
+                if rec.get("time_stamp") == detected_running_ts:
+                    target_running_row_index = i
+                    break
+            if target_running_row_index is None:
+                parsed_curr = self._parse_timestamp(detected_running_ts)
+                if isinstance(parsed_curr, datetime):
+                    for i, rec in enumerate(records):
+                        ts = rec.get("time_stamp")
+                        if not ts:
+                            continue
+                        start_dt = self._parse_timestamp(ts)
+                        if isinstance(start_dt, datetime) and start_dt <= parsed_curr:
+                            target_running_row_index = i
+                        elif isinstance(start_dt, datetime) and start_dt > parsed_curr:
+                            break
+
+        # 2. Match by running event id if timestamp did not match or was not provided
+        if target_running_row_index is None and detected_running_id:
+            matching_indices = [i for i, r in enumerate(records) if r.get("event_id") == detected_running_id]
+            if len(matching_indices) == 1:
+                target_running_row_index = matching_indices[0]
+            elif matching_indices:
+                for idx in matching_indices:
+                    if idx >= len(results):
+                        target_running_row_index = idx
+                        break
+                if target_running_row_index is None:
+                    target_running_row_index = matching_indices[0]
+
+        # 3. Detect from running result in results array
+        if target_running_row_index is None:
             for result in results:
                 if not isinstance(result, dict):
                     continue
                 st = str(result.get("status", "")).lower()
                 is_running_flag = result.get("is_running")
                 sr = result.get("strategy_result", [])
-                is_completed = False
-                if isinstance(sr, list) and sr:
-                    if sr[-1].get("status") == "completed":
-                        is_completed = True
-
+                is_completed = (isinstance(sr, list) and len(sr) > 0 and sr[-1].get("status") == "completed")
                 if (st in ("running", "in_progress")) or (is_running_flag is True) or (not is_completed and result.get("is_pass") is None and len(sr) > 0):
                     ev_dec = result.get("bess_event_decision", {})
-                    detected_running_id = ev_dec.get("event_id")
-                    detected_running_ts = ev_dec.get("time_stamp")
-        # Fallback if no explicit running event key exists in JSON:
-        if not detected_running_id and not detected_running_ts:
+                    ev_ts = ev_dec.get("time_stamp")
+                    for i, rec in enumerate(records):
+                        if rec.get("time_stamp") == ev_ts:
+                            target_running_row_index = i
+                            break
+                    if target_running_row_index is not None:
+                        break
+
+        # 4. Fallback: first uncompleted record or first record
+        if target_running_row_index is None:
             if results and len(results) < len(records):
-                next_item = records[len(results)]
-                detected_running_id = next_item.get("event_id")
-                detected_running_ts = next_item.get("time_stamp")
+                target_running_row_index = len(results)
             elif records:
-                detected_running_id = records[0].get("event_id")
-                detected_running_ts = records[0].get("time_stamp")
+                target_running_row_index = 0
+
+        if target_running_row_index is not None and target_running_row_index < len(records):
+            matched_rec = records[target_running_row_index]
+            detected_running_id = matched_rec.get("event_id") or detected_running_id
+            if not detected_running_ts:
+                detected_running_ts = matched_rec.get("time_stamp")
 
         self.running_event_id = detected_running_id
         running_row_index = None
@@ -1546,22 +1752,9 @@ class BessDispatchScheduleWidget(QFrame):
             )
 
             # Determine row status: RUNNING, PASS, FAIL, UPCOMING
-            is_running = False
-            if detected_running_ts and timestamp == detected_running_ts:
-                is_running = True
-            elif outcome and (str(outcome.get("status", "")).lower() in ("running", "in_progress") or outcome.get("is_running") is True):
-                is_running = True
-            elif outcome and outcome.get("is_pass") is None and outcome.get("strategy_result"):
-                sr_list = outcome.get("strategy_result", [])
-                if sr_list and isinstance(sr_list, list) and sr_list[-1].get("status") != "completed":
-                    is_running = True
-            elif detected_running_id and event_id == detected_running_id and running_row_index is None and (not outcome or outcome.get("is_pass") is None):
-                is_running = True
-
-            if is_running:
+            if target_running_row_index is not None and idx == target_running_row_index:
                 status = "RUNNING"
-                if running_row_index is None:
-                    running_row_index = idx
+                running_row_index = idx
                 if not self.running_event_id:
                     self.running_event_id = event_id
             elif outcome:
@@ -1618,10 +1811,67 @@ class BessDispatchScheduleWidget(QFrame):
             })
 
         self.running_row_index = running_row_index
+        self.running_event_id = detected_running_id or (schedule[running_row_index]["event_id"] if running_row_index is not None and running_row_index < len(schedule) else None)
+        self.running_timestamp = detected_running_ts
+
+        # Determine event start datetime (15-minute counter begins at running_timestamp)
+        if detected_running_ts:
+            parsed_run_ts = self._parse_timestamp(detected_running_ts)
+            if isinstance(parsed_run_ts, datetime):
+                self.event_start_dt = parsed_run_ts
+        elif running_row_index is not None and running_row_index < len(schedule):
+            start_raw = schedule[running_row_index].get("time_stamp")
+            if start_raw:
+                parsed_start = self._parse_timestamp(start_raw)
+                if isinstance(parsed_start, datetime):
+                    self.event_start_dt = parsed_start
+        elif schedule:
+            start_raw = schedule[0].get("time_stamp")
+            if start_raw:
+                parsed_start = self._parse_timestamp(start_raw)
+                if isinstance(parsed_start, datetime):
+                    self.event_start_dt = parsed_start
+
+        if running_row_index is not None and running_row_index < len(schedule):
+            self.current_window_load = schedule[running_row_index].get("window_load", [])
+        elif schedule:
+            self.current_window_load = schedule[0].get("window_load", [])
+
+        # Start 15-minute counter from running_timestamp
+        last_ts = getattr(self, "_last_running_ts", None)
+        ts_changed = (detected_running_ts != last_ts)
+        self._last_running_ts = detected_running_ts
+
+        if isinstance(self.event_start_dt, datetime):
+            now = datetime.now()
+            if self.event_start_dt.date() == now.date():
+                sec_diff = (now - self.event_start_dt).total_seconds()
+                if 0 <= sec_diff <= 900:
+                    self.elapsed_seconds = int(sec_diff)
+                elif sec_diff > 900:
+                    self.elapsed_seconds = 0 if ts_changed else 900
+                else:
+                    self.elapsed_seconds = 0
+            else:
+                if ts_changed:
+                    self.elapsed_seconds = 0
+        else:
+            if ts_changed:
+                self.elapsed_seconds = 0
+
+        self._update_timing_display()
         self._update_running_event_badge()
 
         initial_detail = schedule[running_row_index] if (running_row_index is not None and running_row_index < len(schedule)) else (schedule[0] if schedule else None)
         self.update_schedule(schedule, initial_detail)
+        if self.running_event_id and initial_detail:
+            self._notify_event_if_new(
+                self.running_event_id,
+                initial_detail.get("decision", ""),
+                initial_detail.get("load", 0),
+                time_stamp=initial_detail.get("time_stamp") or self.running_timestamp or "",
+                soc=initial_detail.get("soc", 50.0),
+            )
         self.json_last_modified = os.path.getmtime(self.json_file_path)
 
     def check_json_update(self):

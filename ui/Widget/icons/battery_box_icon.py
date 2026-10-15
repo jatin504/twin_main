@@ -108,8 +108,8 @@ class BatteryBoxIcon(QWidget):
         self,
         soc,
         stored_energy_kwh,
-        stored_capacity_ah,
-        battery_voltage,
+        stored_capacity_ah=0.0,
+        battery_voltage=0.0,
         temperature=None,
         power_kw=0.0,
     ):

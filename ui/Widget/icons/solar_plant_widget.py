@@ -20,8 +20,8 @@ class SolarPlantWidget(QWidget):
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(2)
 
-        title = QLabel("SOLAR PLANT")
-        title.setStyleSheet("""
+        self.title_label = QLabel("SOLAR PLANT")
+        self.title_label.setStyleSheet("""
             QLabel {
                 background: transparent;
                 font-size: 9px;
@@ -30,8 +30,8 @@ class SolarPlantWidget(QWidget):
             }
         """)
 
-        kw = QLabel("2.15 MW")
-        kw.setStyleSheet("""
+        self.kw_label = QLabel("2.15 MW")
+        self.kw_label.setStyleSheet("""
             QLabel {
                 background: transparent;
                 font-size: 8px;
@@ -39,8 +39,8 @@ class SolarPlantWidget(QWidget):
             }
         """)
 
-        kvar = QLabel("0.05 MVAr")
-        kvar.setStyleSheet("""
+        self.kvar_label = QLabel("0.05 MVAr")
+        self.kvar_label.setStyleSheet("""
             QLabel {
                 background: transparent;
                 font-size: 8px;
@@ -48,8 +48,8 @@ class SolarPlantWidget(QWidget):
             }
         """)
 
-        pf = QLabel("PF 0.99 Lag")
-        pf.setStyleSheet("""
+        self.pf_label = QLabel("PF 0.99 Lag")
+        self.pf_label.setStyleSheet("""
             QLabel {
                 background: transparent;
                 font-size: 8px;
@@ -57,9 +57,20 @@ class SolarPlantWidget(QWidget):
             }
         """)
 
-        right.addWidget(title)
-        right.addWidget(kw)
-        right.addWidget(kvar)
-        right.addWidget(pf)
+        right.addWidget(self.title_label)
+        right.addWidget(self.kw_label)
+        right.addWidget(self.kvar_label)
+        right.addWidget(self.pf_label)
 
         layout.addLayout(right)
+
+    def update_data(self, active_power_mw=None, reactive_power_mvar=None, power_factor=None):
+        """Update solar plant live readings from mapped tags."""
+        if active_power_mw is not None:
+            self.kw_label.setText(f"{float(active_power_mw):.2f} MW")
+        if reactive_power_mvar is not None:
+            self.kvar_label.setText(f"{float(reactive_power_mvar):.2f} MVAr")
+        if power_factor is not None:
+            pf_val = float(power_factor)
+            suffix = " Lag" if pf_val >= 0 else " Lead"
+            self.pf_label.setText(f"PF {abs(pf_val):.2f}{suffix}")

@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 
 from state.database import StateDatabase
+from common.constants import IST
 
 
 class PlantDatabase:
@@ -160,7 +161,7 @@ class PlantDatabase:
         Export historical records to a JSON file (atomic write).
         """
         history_data = {
-            "saved_at": datetime.utcnow().isoformat(),
+            "saved_at": datetime.now(IST).isoformat(),
             "window_seconds": last_seconds,
             "devices": self.get_all_history(device_ids, last_seconds),
         }

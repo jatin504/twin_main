@@ -42,12 +42,21 @@ class Simulator:
         self._simulation_thread = None
 
         self._network = None
+        self._simulator = self
 
         self._running = False
 
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def network(self):
+        return self._network
+
+    @property
+    def network_manager(self):
+        return self._network
 
     def start(self, sim, net):
 
@@ -87,22 +96,25 @@ class Simulator:
         if was_running:
             self.stop()
 
-        # self.scheduler.reset()
         # Clear old simulation objects
         self.clear()
 
         # Read changed YAML and rebuild everything
         print("Reloading YAML and rebuilding simulation...")
 
+        sim_target = getattr(self, "_simulator", self) or self
         topology, net, simulator = build_simulation(
-            self._simulator,
+            sim_target,
             "plant/plant.yaml",
         )
 
         self._simulator = simulator
+        self._network = net
 
         if restart:
             self.start(simulator, net)
+
+        return net
 
     def clear(self):
 
@@ -110,7 +122,11 @@ class Simulator:
         self.stop()
 
         for model in self.scheduler.models:
-            model.clear()
+            try:
+                model.clear()
+            except Exception:
+                pass
+        self.scheduler.models.clear()
 
         # Clear device contexts
         self.contexts.clear()
