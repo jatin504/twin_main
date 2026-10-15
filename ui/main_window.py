@@ -278,6 +278,8 @@ class MainWindow(QMainWindow):
         self.custom_mode = custom_mode
         self.backend_factory = backend_factory
 
+        self.setWindowTitle("ETALab Simulation - Project : KB20 US-MICROSOFT NOIDA")
+        self.plant_yaml_path = os.getenv("PLANT_TOPOLOGY_PATH")
         self.setWindowTitle("Plant Digital Twin")
         self.plant_yaml_path = "plant/plant.yaml"
         self.load_custom_configuration()
