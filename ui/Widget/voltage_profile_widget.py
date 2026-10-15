@@ -48,7 +48,7 @@ class VoltageProfileCanvas(QWidget):
         self.voltage_dict: dict[str, float] = {}
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMouseTracking(True)
+        self.setMouseTracking(False)
         self.hover_pos: QPoint | None = None
         self.hover_active: bool = False
 
@@ -67,19 +67,6 @@ class VoltageProfileCanvas(QWidget):
                 self.voltage_data.append(1.0)
 
         self.update()
-
-    def mouseMoveEvent(self, event):
-        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
-        self.hover_pos = pos
-        self.hover_active = True
-        self.update()
-        super().mouseMoveEvent(event)
-
-    def leaveEvent(self, event):
-        self.hover_active = False
-        self.hover_pos = None
-        self.update()
-        super().leaveEvent(event)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -272,74 +259,6 @@ class VoltageProfileCanvas(QWidget):
             p.drawText(-label_w - 2, 4, label)
             p.restore()
 
-        # -----------------------------------------------------------------
-        # HOVER INSPECTION CROSSHAIR & TOOLTIP (FULLSCREEN & DESKTOP)
-        # -----------------------------------------------------------------
-        if self.hover_active and self.hover_pos and left <= self.hover_pos.x() <= right:
-            hx = self.hover_pos.x()
-
-            # Find closest bus
-            closest_idx = 0
-            min_dist = float("inf")
-            for i, bx in enumerate(bus_x_coords):
-                dist = abs(bx - hx)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_idx = i
-
-            if min_dist < 45 and closest_idx < len(points):
-                c_pt = points[closest_idx]
-                c_bus = self.bus_names[closest_idx]
-                c_val = self.voltage_data[closest_idx]
-
-                # Vertical crosshair
-                p.setPen(QPen(QColor(100, 116, 139, 160), 1.0, Qt.DashLine))
-                p.drawLine(c_pt.x(), top, c_pt.x(), bottom)
-
-                # Outer ring on selected point
-                p.setPen(QPen(QColor("#38BDF8"), 2.0))
-                p.setBrush(Qt.NoBrush)
-                p.drawEllipse(c_pt, 7, 7)
-
-                # Inspection Card
-                base_kv = self.BUS_BASE_KV.get(c_bus, 0.433)
-                act_v = c_val * base_kv * (1000.0 if base_kv < 1.0 else 1.0)
-                v_unit = "V" if base_kv < 1.0 else "kV"
-
-                if c_val > 1.10 or c_val < 0.90:
-                    status_text = "CRITICAL LIMIT"
-                    status_col = QColor("#EF4444")
-                elif c_val > 1.05 or c_val < 0.95:
-                    status_text = "VOLTAGE WARNING"
-                    status_col = QColor("#F59E0B")
-                else:
-                    status_text = "NORMAL (NOMINAL)"
-                    status_col = QColor("#10B981")
-
-                card_w = 160
-                card_h = 76
-                card_x = max(left + 8, min(right - card_w - 8, c_pt.x() + 12))
-                card_y = max(top + 8, min(bottom - card_h - 8, c_pt.y() - 30))
-
-                p.setPen(QPen(QColor("#334155"), 1.2))
-                p.setBrush(QBrush(QColor(15, 23, 42, 240)))
-                p.drawRoundedRect(card_x, card_y, card_w, card_h, 6, 6)
-
-                p.setFont(QFont("Segoe UI", 7.5, QFont.Bold))
-                p.setPen(QColor("#F8FAFC"))
-                p.drawText(card_x + 8, card_y + 16, c_bus.replace("_", " "))
-
-                p.setFont(QFont("Segoe UI", 7, QFont.Normal))
-                p.setPen(QColor("#94A3B8"))
-                p.drawText(card_x + 8, card_y + 32, f"Base: {base_kv:.3f} kV")
-
-                p.setFont(QFont("Segoe UI", 7.5, QFont.Bold))
-                p.setPen(QColor("#38BDF8"))
-                p.drawText(card_x + 8, card_y + 48, f"Voltage: {c_val:.4f} p.u. ({act_v:.1f} {v_unit})")
-
-                p.setFont(QFont("Segoe UI", 7, QFont.Bold))
-                p.setPen(status_col)
-                p.drawText(card_x + 8, card_y + 64, f"● {status_text}")
 
 
 class VoltageProfileFullscreenDialog(QDialog):
@@ -347,7 +266,7 @@ class VoltageProfileFullscreenDialog(QDialog):
     Dedicated Full-Screen Dialog for Spatial Bus Voltage Profile.
     - Zero black screen flash, crisp white industrial SCADA background.
     - Full-sized expanded VoltageProfileCanvas with generous margin and clear bus labels.
-    - Interactive hover crosshair with detailed bus inspection card.
+    - Tooltip-free bus voltage display.
     - Bottom SCADA summary table showing all buses with Base kV, p.u. voltage, actual voltage, and status.
     - Esc or ✕ button exits cleanly and instantly.
     """

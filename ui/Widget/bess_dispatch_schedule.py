@@ -1646,16 +1646,21 @@ class BessDispatchScheduleWidget(QFrame):
         # Determine target running row index strictly from event ID and timestamps
         target_running_row_index = None
 
-        # 1. Match by running timestamp first if provided (allows dynamic time stepping from JSON)
+        # An explicit event ID is authoritative. A timestamp must never select
+        # a row belonging to another event and overwrite that ID.
+        candidate_records = [(i, rec) for i, rec in enumerate(records)
+                             if not detected_running_id or rec.get("event_id") == detected_running_id]
+
+        # Use the timestamp to select an interval within the requested event.
         if detected_running_ts:
-            for i, rec in enumerate(records):
+            for i, rec in candidate_records:
                 if rec.get("time_stamp") == detected_running_ts:
                     target_running_row_index = i
                     break
             if target_running_row_index is None:
                 parsed_curr = self._parse_timestamp(detected_running_ts)
                 if isinstance(parsed_curr, datetime):
-                    for i, rec in enumerate(records):
+                    for i, rec in candidate_records:
                         ts = rec.get("time_stamp")
                         if not ts:
                             continue
@@ -1678,8 +1683,8 @@ class BessDispatchScheduleWidget(QFrame):
                 if target_running_row_index is None:
                     target_running_row_index = matching_indices[0]
 
-        # 3. Detect from running result in results array
-        if target_running_row_index is None:
+        # Infer from results only when the caller supplied no event ID.
+        if target_running_row_index is None and not detected_running_id:
             for result in results:
                 if not isinstance(result, dict):
                     continue
@@ -1697,8 +1702,8 @@ class BessDispatchScheduleWidget(QFrame):
                     if target_running_row_index is not None:
                         break
 
-        # 4. Fallback: first uncompleted record or first record
-        if target_running_row_index is None:
+        # Do not silently substitute another event for an unknown explicit ID.
+        if target_running_row_index is None and not detected_running_id:
             if results and len(results) < len(records):
                 target_running_row_index = len(results)
             elif records:

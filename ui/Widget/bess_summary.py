@@ -299,8 +299,12 @@ class BessSummaryWidget(QFrame):
         def _bus_wheel(event):
             delta = event.angleDelta().y()
             sb = self.bus_scroll.verticalScrollBar()
-            sb.setValue(sb.value() - int(delta / 4))
-            event.accept()
+            previous = sb.value()
+            sb.setValue(previous - int(delta / 4))
+            if sb.value() == previous:
+                event.ignore()  # Let the dashboard scroll at the edge of this list.
+            else:
+                event.accept()
         self.bus_scroll.wheelEvent = _bus_wheel
 
         # Footer for Bus Voltage

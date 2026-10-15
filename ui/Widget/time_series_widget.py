@@ -242,6 +242,9 @@ class TimeSeriesChartCanvas(QWidget):
         super().mouseMoveEvent(event)
 
     def wheelEvent(self, event):
+        if self.dashboard_style:
+            event.ignore()
+            return
         if self.hover_active:
             delta = event.angleDelta().y()
             if delta > 0:

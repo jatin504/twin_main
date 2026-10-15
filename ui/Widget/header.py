@@ -89,7 +89,7 @@ class HeaderWidget(QWidget):
 
         self.status_box = InfoBox("Simulation Status", "RUNNING", "#16A34A")
         self.elapsed_box = InfoBox("Elapsed Time", "00:00 / 15m", "#D97706")
-        self.time_box = InfoBox("Simulation Time", "22-Sep-2026   00:00:00")
+        self.time_box = InfoBox("Simulation Time", "--")
         self.step_box = InfoBox("Time Step", "15 min")
         self.scenario_box = InfoBox("Scenario", "Base Case")
         self.horizon_box = InfoBox("Forecast Horizon", "24 Hours")

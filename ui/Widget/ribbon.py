@@ -126,6 +126,10 @@ class Ribbon(QWidget):
     def __init__(self):
         super().__init__()
 
+        self._event_key = None
+        self._event_start_energy_mwh = None
+        self._event_start_soc = None
+
         self.setFixedHeight(84)
 
         self.setStyleSheet("""
@@ -157,7 +161,7 @@ class Ribbon(QWidget):
 
         self.solar_energy = RibbonItem(
             "☀",
-            "Solar Energy",
+            "Solar Power",
             "0.00 MW",
             "0.00 MVAr",
             "#111827",
@@ -277,22 +281,22 @@ class Ribbon(QWidget):
         load_power = grid_data.get(
             "load_power",
             0,
-        )
+        ) or 0.0
 
         import_power = grid_data.get(
             "import_power",
             0,
-        )
+        ) or 0.0
 
         export_power = grid_data.get(
             "export_power",
             0,
-        )
+        ) or 0.0
 
         network_losses = grid_data.get(
             "network_losses",
             0,
-        )
+        ) or 0.0
 
         
         # SOLAR
@@ -304,7 +308,8 @@ class Ribbon(QWidget):
                 "solar_power",
                 0,
             ),
-        )        # --------------------------------------------------
+        ) or 0.0
+        # --------------------------------------------------
         # AVERAGE SOC & TOTAL DISCHARGE
         # --------------------------------------------------
 
@@ -332,7 +337,9 @@ class Ribbon(QWidget):
                 schedule_events = schedule_data.get("schedule", [])
                 if running_id and isinstance(schedule_events, list):
                     for ev in schedule_events:
-                        if isinstance(ev, dict) and ev.get("event_id") == running_id:
+                        if (isinstance(ev, dict) and ev.get("event_id") == running_id
+                                and (not schedule_data.get("running_timestamp")
+                                     or ev.get("time_stamp") == schedule_data["running_timestamp"])):
                             active_event = ev
                             break
                 if not active_event and isinstance(schedule_events, list) and schedule_events:
@@ -346,8 +353,6 @@ class Ribbon(QWidget):
                                         if ev.get("event_id") == ev_dec["event_id"]:
                                             active_event = ev
                                             break
-                    if not active_event:
-                        active_event = schedule_events[0]
             if active_event is None:
                 active_event = {}
 
@@ -372,24 +377,9 @@ class Ribbon(QWidget):
 
         # --------------------------------------------------
         # 3. BESS CHARGE / DISCHARGE
-        # Green text in MWh from schedule: target_charge_energy_mwh / target_discharge_energy_mwh
+        # Green text: event-start stored energy minus live stored energy (MWh).
         # Subtext from PPC database Tags.Battery.POWER (+Ve -> Discharge, -Ve -> Charge)
         # --------------------------------------------------
-
-        target_charge_mwh = float(active_event.get("target_charge_energy_mwh", 0.0) or 0.0)
-        target_discharge_mwh = float(active_event.get("target_discharge_energy_mwh", 0.0) or 0.0)
-        decision = str(active_event.get("decision", "")).lower()
-
-        if "charge" in decision and "discharge" not in decision:
-            target_energy_mwh = target_charge_mwh if target_charge_mwh > 0 else target_discharge_mwh
-        elif "discharge" in decision:
-            target_energy_mwh = target_discharge_mwh if target_discharge_mwh > 0 else target_charge_mwh
-        else:
-            target_energy_mwh = max(target_charge_mwh, target_discharge_mwh)
-
-        self.bess_charge_discharge.valueLbl.setText(
-            f"{target_energy_mwh:.2f} MWh"
-        )
 
         bess_power = grid_data.get("bess_power")
         if bess_power is None:
@@ -412,32 +402,46 @@ class Ribbon(QWidget):
 
         # --------------------------------------------------
         # 4. BESS USABLE / AVAILABLE
-        # Available: live stored energy or event battery_energy_mwh
+        # Available: live stored energy, including a legitimate zero value.
         # Usable: Available - Risk Reserve
         # --------------------------------------------------
 
-        ev_avail = active_event.get("battery_energy_mwh") or active_event.get("available_energy")
-        stored_pcs_mwh = sum(float(pcs.get("stored_energy", 0.0) or 0.0) for pcs in pcs_data) / 1000.0
-
-        if ev_avail is not None and float(ev_avail) > 0:
-            total_available_energy = float(ev_avail)
-        elif stored_pcs_mwh > 0:
-            total_available_energy = stored_pcs_mwh
+        # Live stored energy is in kWh; schedule energy is in MWh.
+        stored_values = [float(pcs["stored_energy"]) for pcs in pcs_data
+                         if pcs.get("stored_energy") is not None]
+        if stored_values:
+            total_available_energy = sum(stored_values) / 1000.0
+        elif grid_data.get("bess_stored_energy") is not None:
+            total_available_energy = float(grid_data["bess_stored_energy"]) / 1000.0
         else:
-            total_available_energy = float(grid_data.get("bess_stored_energy", 0.0) or 0.0) / 1000.0
+            total_available_energy = None
 
         risk_reserve_mwh = float(active_event.get("risk_reserve_mwh", 0.0) or 0.0)
-        if risk_reserve_mwh > 0:
-            total_usable_energy = max(0.0, total_available_energy - risk_reserve_mwh)
-        else:
-            total_capacity_mwh = 16.0
-            total_usable_energy = max(0.0, total_capacity_mwh * max(0.0, avg_soc - 10.0) / 100.0)
+        total_usable_energy = (max(0.0, total_available_energy - risk_reserve_mwh)
+                               if total_available_energy is not None else None)
+
+        # Capture once per event occurrence, including repeated IDs on a new timestamp.
+        event_key = ((active_event.get("event_id"), active_event.get("time_stamp"))
+                     if active_event else None)
+        if event_key != self._event_key:
+            self._event_key = event_key
+            self._event_start_energy_mwh = total_available_energy if event_key else None
+            self._event_start_soc = avg_soc if event_key else None
+        elif event_key and self._event_start_energy_mwh is None:
+            self._event_start_energy_mwh = total_available_energy
+
+        delta_mwh = (self._event_start_energy_mwh - total_available_energy
+                     if self._event_start_energy_mwh is not None
+                     and total_available_energy is not None else 0.0)
+        if abs(delta_mwh) < 0.005:
+            delta_mwh = 0.0
+        self.bess_charge_discharge.valueLbl.setText(f"{delta_mwh:.2f} MWh")
 
         self.bess_usable_available.valueLbl.setText(
-            f"{total_usable_energy:.2f} MWh"
+            f"{total_usable_energy:.2f} MWh" if total_usable_energy is not None else "— MWh"
         )
         self.bess_usable_available.subLbl.setText(
-            f"Available  {total_available_energy:.2f} MWh"
+            f"Available  {total_available_energy:.2f} MWh" if total_available_energy is not None else "Available  — MWh"
         )
 
         # --------------------------------------------------
@@ -445,10 +449,7 @@ class Ribbon(QWidget):
         # Formula: Live SOC - Event Start SOC
         # --------------------------------------------------
 
-        ev_start_soc = active_event.get("soc_percent")
-        if ev_start_soc is None:
-            ev_start_soc = active_event.get("soc", avg_soc)
-        ev_start_soc = float(ev_start_soc or avg_soc)
+        ev_start_soc = self._event_start_soc if self._event_start_soc is not None else avg_soc
 
         live_soc = float(avg_soc)
         soc_delta = live_soc - ev_start_soc
