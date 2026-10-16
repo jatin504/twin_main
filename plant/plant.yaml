@@ -4,7 +4,7 @@ plant:
   utility:
     bus: GRID_33KV
     voltage_kv: 33
-    available: false
+    available: true
     short_circuit_mva: 500
     x_r_ratio: 10
 transformers:

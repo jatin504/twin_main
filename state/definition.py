@@ -37,6 +37,17 @@ class VariableDefinition:
 
 VARIABLE_DEFINITIONS = [
 
+    # Aggregate PV generation; shared by the network, ribbon and history graph.
+    VariableDefinition(
+        name=Tags.SOLAR.PV_POWER,
+        datatype=float,
+        default=0.0,
+        unit="kW",
+        minimum=0.0,
+        enable_store=True,
+        description="Total three-phase solar active power supplied to the network",
+    ),
+
     # Battery
 
     VariableDefinition(
