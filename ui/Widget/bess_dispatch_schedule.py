@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -7,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QLabel,
+    QLineEdit,
     QToolButton,
     QVBoxLayout,
     QHBoxLayout,
@@ -318,6 +320,30 @@ class BessDispatchScheduleWidget(QFrame):
         self._add_header_cell(schedule_header, "Cycles", 42)
         self._add_header_cell(schedule_header, "Target SoC", 48)
         self._add_header_cell(schedule_header, "Status", 54)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(6)
+        self.schedule_search = QLineEdit()
+        self.schedule_search.setPlaceholderText("Search event ID or time…")
+        self.schedule_search.setClearButtonEnabled(True)
+        self.schedule_search.setFixedHeight(26)
+        self.schedule_search.setStyleSheet("QLineEdit {background: #FFFFFF; color: #172B4D; border: 1px solid #CBD5E1; border-radius: 5px; padding: 3px 8px; font-size: 10px;} QLineEdit:focus {border: 1px solid #2563EB;}")
+        self.schedule_search.setToolTip("Search full or partial event ID, time or date; combine ID and time to narrow results")
+        self.search_count = QLabel()
+        self.search_count.setStyleSheet("color: #64748B; font-size: 9px; border: none;")
+        search_row.addWidget(self.schedule_search, 1)
+        search_row.addWidget(self.search_count)
+        root.addLayout(search_row)
+        self.search_empty = QLabel("No matching events")
+        self.search_empty.setAlignment(Qt.AlignCenter)
+        self.search_empty.setStyleSheet("color: #64748B; font-size: 10px; padding: 4px; border: none;")
+        self.search_empty.hide()
+        root.addWidget(self.search_empty)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(120)
+        self._search_timer.timeout.connect(self._apply_search_filter)
+        self.schedule_search.textChanged.connect(lambda _text: self._search_timer.start())
 
         root.addWidget(schedule_frame)
 
@@ -1078,6 +1104,37 @@ class BessDispatchScheduleWidget(QFrame):
         ):
             self._update_active_row(force=True)
 
+        self._apply_search_filter()
+
+    def _apply_search_filter(self):
+        """Filter displayed rows only; keep event indices and execution state intact."""
+        tokens = self.schedule_search.text().strip().casefold().split()
+        matches = 0
+        self.schedule_content.setUpdatesEnabled(False)
+        try:
+            for index, row in enumerate(self.schedule_rows):
+                item = self.schedule_data[index]
+                fields = [str(item.get(key, "")).casefold()
+                          for key in ("event_id", "time", "time_stamp", "status")]
+                text = " ".join(fields)
+                compact = re.sub(r"[^a-z0-9]", "", text)
+                def matches_token(token):
+                    if re.fullmatch(r"\d{1,2}:\d{2}", token):
+                        # Match HH:MM, not the minute/second suffix of a timestamp.
+                        clock = str(item.get("time_stamp", "")).replace("T", " ").split()
+                        return token in str(item.get("time", "")) or (
+                            bool(clock) and clock[-1][:5] == token)
+                    normalized = re.sub(r"[^a-z0-9]", "", token)
+                    return token in text or bool(normalized and normalized in compact)
+                visible = all(matches_token(token) for token in tokens)
+                if row.isHidden() == visible:
+                    row.setVisible(visible)
+                matches += int(visible)
+        finally:
+            self.schedule_content.setUpdatesEnabled(True)
+        self.search_count.setText(f"{matches} / {len(self.schedule_rows)}")
+        self.search_empty.setVisible(bool(tokens) and not matches)
+
     def update_twin_load(self, load_kw):
         self.current_twin_load = float(load_kw)
 
@@ -1290,7 +1347,8 @@ class BessDispatchScheduleWidget(QFrame):
     def _scroll_to_row(self, index):
         if 0 <= index < len(self.schedule_rows):
             row_widget = self.schedule_rows[index]
-            self.schedule_scroll.ensureWidgetVisible(row_widget, 0, 10)
+            if not self.schedule_search.text().strip() or not row_widget.isHidden():
+                self.schedule_scroll.ensureWidgetVisible(row_widget, 0, 10)
 
     def _set_schedule_row_active(self, index, active):
         if not 0 <= index < len(self.schedule_rows):

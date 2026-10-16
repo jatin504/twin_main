@@ -3,9 +3,10 @@ from datetime import datetime, timedelta
 
 import yaml
 
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QEventLoop
 from PySide6.QtWidgets import (
     QMainWindow,
+    QApplication,
     QWidget,
     QFrame,
     QVBoxLayout,
@@ -883,7 +884,38 @@ class MainWindow(QMainWindow):
                     e
                 )
 
+    def _show_restart_notice(self, text, error=False):
+        if not hasattr(self, "restart_notice"):
+            self.restart_notice = QLabel(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.restart_notice.setAttribute(Qt.WA_ShowWithoutActivating)
+            self.restart_notice.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self._restart_notice_timer = QTimer(self)
+            self._restart_notice_timer.setSingleShot(True)
+            self._restart_notice_timer.timeout.connect(self.restart_notice.hide)
+        self._restart_notice_timer.stop()
+        color = "#991B1B" if error else "#1D4ED8"
+        self.restart_notice.setStyleSheet(
+            f"background: #EFF6FF; color: {color}; border: 1px solid #93C5FD; "
+            "border-radius: 8px; padding: 12px 18px; font-size: 13px; font-weight: 700;")
+        self.restart_notice.setText(text)
+        self.restart_notice.adjustSize()
+        notice_x = max(20, self.width() - self.restart_notice.width() - 20)
+        self.restart_notice.move(self.mapToGlobal(QPoint(notice_x, 90)))
+        self.restart_notice.show()
+        self.restart_notice.raise_()
+        self.restart_notice.repaint()
+
     def restart_simulation(self):
+        if self.simulator is None or getattr(self, "_restart_in_progress", False):
+            return
+        self._restart_in_progress = True
+        self.restart_button.setEnabled(False)
+        self._show_restart_notice("Restarting simulation… Please wait")
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+        # Paint the notice before the synchronous simulator rebuild starts.
+        QTimer.singleShot(100, self._perform_restart_simulation)
+
+    def _perform_restart_simulation(self):
         if self.simulator is None:
             print("ERROR: Simulator is not available")
             return
@@ -935,6 +967,8 @@ class MainWindow(QMainWindow):
                 }
             """)
             print("Simulation Restarted")
+            self._show_restart_notice("Simulation restarted successfully")
+            self._restart_notice_timer.start(3500)
 
             self.update_voltage_profile()
         except Exception as e:
@@ -942,6 +976,10 @@ class MainWindow(QMainWindow):
                 "RESTART SIMULATION ERROR:",
                 e
             )
+            self._show_restart_notice(f"Restart failed: {e}", error=True)
+        finally:
+            self._restart_in_progress = False
+            self.restart_button.setEnabled(True)
 
     def submit_configuration(self):
         try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left
 import copy
 import json
 import math
@@ -12,6 +13,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent
 from state.tags import Tags
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QWidget,
@@ -330,6 +332,12 @@ class TimeSeriesChartCanvas(QWidget):
         self.window_seconds = 3600.0
         self.dashboard_style = False
         self._visible_metric_samples: dict[str, list[tuple[float, float]]] = {}
+        self._curve_items = {}
+        self._interaction_until = 0.0
+        self._pending_history = None
+        self._interaction_timer = QTimer(self)
+        self._interaction_timer.setSingleShot(True)
+        self._interaction_timer.timeout.connect(self._flush_pending_history)
         self._data_items: list[tuple[pg.ViewBox, pg.PlotDataItem]] = []
         self._hover_markers: dict[
             str, tuple[pg.ViewBox, pg.ScatterPlotItem, str, dict]
@@ -343,10 +351,15 @@ class TimeSeriesChartCanvas(QWidget):
         )
         self.plot.setBackground("#FFFFFF")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
-        self.plot.setMouseEnabled(x=True, y=False)
+        self.plot.setMouseEnabled(x=True, y=True)
         self.plot_item = self.plot.getPlotItem()
         self.plot_item.layout.setContentsMargins(8, 16, 8, 16)
         self.main_view = self.plot_item.getViewBox()
+        self._manual_navigation = False
+        self.main_view.sigRangeChangedManually.connect(self._on_manual_navigation)
+        self.main_view.setMouseMode(pg.ViewBox.RectMode)
+        self.main_view.rbScaleBox.setPen(pg.mkPen("#2563EB", width=1.5))
+        self.main_view.rbScaleBox.setBrush(pg.mkBrush(59, 130, 246, 40))
         self._chart_column = 1
         self._overlay_slots: list[tuple[pg.AxisItem, pg.ViewBox]] = []
         self.plot_item.hideAxis("right")
@@ -375,7 +388,8 @@ class TimeSeriesChartCanvas(QWidget):
             "}"
         )
         self._hover_tooltip.hide()
-        self.plot.scene().sigMouseMoved.connect(self._on_mouse_moved)
+        self._mouse_proxy = pg.SignalProxy(
+            self.plot.scene().sigMouseMoved, rateLimit=30, slot=self._on_mouse_proxy)
         self.plot.viewport().installEventFilter(self)
         self.plot.installEventFilter(self)
 
@@ -480,17 +494,17 @@ class TimeSeriesChartCanvas(QWidget):
         history_data: dict[str, list[dict]] | None,
         window_seconds: float = 3600.0,
     ):
+        if history_data and time.monotonic() < self._interaction_until:
+            self._pending_history = (history_data, window_seconds)
+            self._interaction_timer.start(220)
+            return
+        self._pending_history = None
+        previous_range = self.main_view.viewRange()
         self.history_data = history_data or {}
         self.window_seconds = max(1.0, float(window_seconds))
 
         plot_item = self.plot.getPlotItem()
-        for view, item in self._data_items:
-            view.removeItem(item)
-        self._data_items.clear()
-        for view, marker, _, _ in self._hover_markers.values():
-            view.removeItem(marker)
-        self._hover_markers.clear()
-        plot_item.showGrid(x=True, y=True, alpha=0.2)
+        active_item_keys = set()
 
         all_metrics_selected = self.selected_metrics == {"ALL"}
         multiple_metrics_selected = all_metrics_selected or len(self.selected_metrics) > 1
@@ -631,7 +645,8 @@ class TimeSeriesChartCanvas(QWidget):
             low -= padding
             high += padding
             view.enableAutoRange(view.YAxis, False)
-            view.setYRange(low, high, padding=0)
+            if not self._manual_navigation or view is not self.main_view:
+                view.setYRange(low, high, padding=0)
 
         for key, config, samples in valid_series:
             group = self._unit_group(key, config)
@@ -652,32 +667,55 @@ class TimeSeriesChartCanvas(QWidget):
                 ],
                 dtype=float,
             )
-            curve = pg.PlotDataItem(
-                x_values,
-                y_values,
-                pen=pg.mkPen(color, width=1.5 if self.dashboard_style else 2),
-                name=label,
-                antialias=True,
-                connect="finite",
-            )
-            curve.setDownsampling(auto=True, method="peak")
-            if key in self.AREA_CURVE_METRICS:
-                curve.setFillLevel(0)
-                curve.setBrush(pg.mkBrush(color + "40"))
-            view.addItem(curve)
-            self._data_items.append((view, curve))
-            marker = pg.ScatterPlotItem(
-                size=7,
-                symbol="o",
-                brush=pg.mkBrush(color),
-                pen=pg.mkPen("#FFFFFF", width=1),
-            )
-            marker.setZValue(10)
+            existing = self._curve_items.get(key)
+            if existing is not None and existing[0] is not view:
+                existing[0].removeItem(existing[1])
+                existing = None
+            if existing is None:
+                curve = pg.PlotDataItem(
+                    pen=pg.mkPen(color, width=1), name=label,
+                    antialias=False, connect="finite",
+                )
+                curve.setDownsampling(auto=True, method="peak")
+                curve.setClipToView(True)
+                if key in self.AREA_CURVE_METRICS:
+                    curve.setFillLevel(0)
+                    curve.setBrush(pg.mkBrush(color + "40"))
+                view.addItem(curve)
+                self._curve_items[key] = (view, curve)
+            else:
+                curve = existing[1]
+            curve.setData(x_values, y_values)
+            active_item_keys.add(key)
+            old_marker = self._hover_markers.get(key)
+            if old_marker is None or old_marker[0] is not view:
+                if old_marker is not None:
+                    old_marker[0].removeItem(old_marker[1])
+                marker = pg.ScatterPlotItem(
+                    size=7, symbol="o", brush=pg.mkBrush(color),
+                    pen=pg.mkPen("#FFFFFF", width=1),
+                )
+                marker.setZValue(10)
+                view.addItem(marker)
+            else:
+                marker = old_marker[1]
             marker.hide()
-            view.addItem(marker)
             self._hover_markers[key] = (view, marker, group, config)
 
-        plot_item.setXRange(cutoff, anchor, padding=0)
+        for key in list(self._curve_items):
+            if key not in active_item_keys:
+                view, curve = self._curve_items.pop(key)
+                view.removeItem(curve)
+        for key in list(self._hover_markers):
+            if key not in active_item_keys:
+                view, marker, _, _ = self._hover_markers.pop(key)
+                view.removeItem(marker)
+        self._data_items = list(self._curve_items.values())
+
+        if self._manual_navigation:
+            self.main_view.setRange(xRange=previous_range[0], yRange=previous_range[1], padding=0)
+        else:
+            plot_item.setXRange(cutoff, anchor, padding=0)
         self._sync_overlay_views()
 
     @classmethod
@@ -694,13 +732,25 @@ class TimeSeriesChartCanvas(QWidget):
         for _, marker, _, _ in self._hover_markers.values():
             marker.hide()
 
+    def _flush_pending_history(self):
+        if self._pending_history is not None:
+            data, window = self._pending_history
+            self.update_history(data, window)
+
+    def _on_manual_navigation(self, *_args):
+        self._manual_navigation = True
+        self._interaction_until = time.monotonic() + 0.2
+
     def eventFilter(self, obj, event):
-        if self.dashboard_style and event.type() == QEvent.Wheel:
-            event.ignore()  # Let the parent dashboard scroll instead of zooming the plot.
-            return True
         if event.type() == QEvent.Leave:
             self._hide_hover()
         return super().eventFilter(obj, event)
+
+    def _on_mouse_proxy(self, args):
+        if QApplication.mouseButtons() != Qt.NoButton:
+            self._hide_hover()  # Do not rebuild tooltip HTML during a pan/zoom drag.
+            return
+        self._on_mouse_moved(args[0])
 
     def _on_mouse_moved(self, pos):
         plot_item = self.plot.getPlotItem()
@@ -731,10 +781,21 @@ class TimeSeriesChartCanvas(QWidget):
             if not samples:
                 continue
 
-            timestamp, value = min(
-                samples,
-                key=lambda sample: abs(sample[0] - cursor_x),
-            )
+            # Mark the drawn curve at the cursor time, not the nearest sample
+            # (which can be visibly far away when sampling is sparse).
+            if cursor_x < samples[0][0] or cursor_x > samples[-1][0]:
+                continue
+            index = bisect_left(samples, (cursor_x, -math.inf))
+            if index == 0 or samples[index][0] == cursor_x:
+                value = self._area_curve_value(key, samples[index][1])
+            else:
+                left_t, left_v = samples[index - 1]
+                right_t, right_v = samples[index]
+                fraction = (cursor_x - left_t) / (right_t - left_t)
+                left_v = self._area_curve_value(key, left_v)
+                right_v = self._area_curve_value(key, right_v)
+                value = left_v + fraction * (right_v - left_v)
+            timestamp = cursor_x
             marker_data = self._hover_markers.get(key)
             if marker_data is not None:
                 _, marker, group, marker_config = marker_data
@@ -1239,7 +1300,8 @@ class TimeSeriesWidget(QFrame):
             layout.addWidget(self.legend_scroll)
 
         self._frozen = False
-        self.history_button = QPushButton("Last 15 min")
+        self._reset_after_ts = None
+        self.history_button = QPushButton("15 min mode")
         self.history_button.setCheckable(True)
         self.history_button.setCursor(Qt.PointingHandCursor)
         self.history_button.setMinimumWidth(115)
@@ -1267,7 +1329,29 @@ class TimeSeriesWidget(QFrame):
         self.history_button.setToolTip(
             "Freeze the last 15 minutes of recorded data. Click again to resume live trends.")
         self.history_button.toggled.connect(self._set_history_mode)
-        header_row.addWidget(self.history_button)
+        # Place the mode next to the one-hour label, before metric selection.
+        header_row.insertWidget(2 if self.dashboard else 1, self.history_button)
+        self.reset_button = QPushButton("Reset")
+        self.reset_button.setFixedHeight(24)
+        self.reset_button.setCursor(Qt.PointingHandCursor)
+        self.reset_button.setStyleSheet("QPushButton {background: #FEF2F2; color: #B91C1C; border: 1px solid #FCA5A5; border-radius: 4px; padding: 2px 10px; font-weight: 600;} QPushButton:hover {background: #FEE2E2;}")
+        self.reset_button.setToolTip("Clear plotted history and start showing only new samples")
+        self.reset_button.clicked.connect(self.reset_graph)
+        header_row.insertWidget(3 if self.dashboard else 2, self.reset_button)
+        self.navigation_combo = QComboBox()
+        self.navigation_combo.addItems(["Zoom Area", "Pan"])
+        self.navigation_combo.setFixedHeight(24)
+        self.navigation_combo.setToolTip("Zoom Area: left-drag a rectangle to zoom. Pan: drag to move the chart.")
+        self.navigation_combo.currentTextChanged.connect(self._set_navigation_mode)
+        header_row.insertWidget(4 if self.dashboard else 3, self.navigation_combo)
+        self.fit_button = QPushButton("Reset Zoom")
+        self.fit_button.setFixedHeight(24)
+        self.fit_button.setCursor(Qt.PointingHandCursor)
+        self.fit_button.setStyleSheet("QPushButton {background: #EFF6FF; color: #1D4ED8; border: 1px solid #93C5FD; border-radius: 4px; padding: 2px 10px; font-weight: 600;} QPushButton:hover {background: #DBEAFE;}")
+        self.fit_button.setToolTip("Restore the full time window without clearing any data")
+        self.fit_button.clicked.connect(self._fit_graph_view)
+        header_row.insertWidget(header_row.indexOf(self.fullscreen_button), self.fit_button)
+        self._set_navigation_mode("Zoom Area")
 
         # Initial load & auto-update timer
         self.update_from_simulator()
@@ -1275,9 +1359,51 @@ class TimeSeriesWidget(QFrame):
         self.auto_timer.timeout.connect(self.update_from_simulator)
         self.auto_timer.start(1000)
 
+    def _set_navigation_mode(self, mode):
+        """Choose rectangle selection or chart dragging explicitly."""
+        self.canvas.main_view.setMouseMode(
+            pg.ViewBox.RectMode if mode == "Zoom Area" else pg.ViewBox.PanMode)
+        self.canvas.plot.setToolTip(
+            "Left-drag a rectangle to zoom into that area; mouse wheel also zooms."
+            if mode == "Zoom Area" else "Left-drag to pan; mouse wheel zooms.")
+
+    def _fit_graph_view(self):
+        """Restore automatic bounds without deleting plotted history."""
+        self.canvas._manual_navigation = False
+        self.canvas._interaction_until = 0.0
+        self.canvas._pending_history = None
+        self.canvas._interaction_timer.stop()
+        self.canvas.main_view.rbScaleBox.hide()
+        self.canvas.update_history(self.canvas.history_data, self.canvas.window_seconds)
+
+    def reset_graph(self):
+        """Clear this graph without deleting shared database or disk history."""
+        times = [float(point["time"]) for points in self.canvas.history_data.values()
+                 for point in points if isinstance(point, dict)
+                 and isinstance(point.get("time"), (int, float))
+                 and math.isfinite(point["time"])]
+        self._reset_after_ts = max([time.time()] + times)
+        self.canvas._manual_navigation = False
+        self.canvas._interaction_until = 0.0
+        self.canvas._pending_history = None
+        self.canvas._interaction_timer.stop()
+        self.canvas._hide_hover()
+        self.canvas.update_history({}, self.canvas.window_seconds)
+        for name, label in getattr(self, "legend_labels", {}).values():
+            label.setText(f"{name}: --")
+        if hasattr(self, "compact_status"):
+            self.compact_status.setText("Graph reset — waiting for new samples")
+        if hasattr(self, "stats_badge"):
+            self.stats_badge.setText("Graph reset — waiting for new samples")
+        self._last_poll_time = 0
+
     def _set_history_mode(self, frozen):
         """Freeze the currently recorded trailing fifteen minutes until toggled off."""
         self._frozen = frozen
+        self.canvas._manual_navigation = False
+        self.canvas._interaction_until = 0.0
+        self.canvas._pending_history = None
+        self.canvas._interaction_timer.stop()
         if frozen:
             self.canvas.history_data = copy.deepcopy(self.canvas.history_data)
             times = [float(p["time"]) for pts in self.canvas.history_data.values()
@@ -1294,7 +1420,7 @@ class TimeSeriesWidget(QFrame):
             self._last_poll_time = 0
             self.update_from_simulator()
             self.auto_timer.start(1000)
-        self.history_button.setText("Last 15 min (paused)" if frozen else "Last 15 min")
+        self.history_button.setText("15 min mode (paused)" if frozen else "15 min mode")
         self.canvas.update_history(self.canvas.history_data, self.canvas.window_seconds)
 
     def _on_combo_changed(self, selected_metrics):
@@ -1351,8 +1477,10 @@ class TimeSeriesWidget(QFrame):
             selected_metric=current_metrics,
             parent=self.window(),
         )
+        target = dialog.chart_widget
+        target._reset_after_ts = self._reset_after_ts
+        target.canvas.update_history(copy.deepcopy(self.canvas.history_data), self.canvas.window_seconds)
         if self._frozen:
-            target = dialog.chart_widget
             target.canvas.history_data = copy.deepcopy(self.canvas.history_data)
             target.history_button.setChecked(True)
             target.canvas.anchor_ts = self.canvas.anchor_ts
@@ -1363,6 +1491,10 @@ class TimeSeriesWidget(QFrame):
             self.fullscreen_dialog = None
             try:
                 if hasattr(dialog, "chart_widget") and hasattr(dialog.chart_widget, "canvas"):
+                    if dialog.chart_widget._reset_after_ts != self._reset_after_ts:
+                        self._reset_after_ts = dialog.chart_widget._reset_after_ts
+                        self.canvas.history_data = copy.deepcopy(dialog.chart_widget.canvas.history_data)
+                        self.canvas._manual_navigation = False
                     metrics = set(dialog.chart_widget.canvas.selected_metrics)
                     self.on_metric_selected(metrics)
                     if hasattr(self, "metric_combo"):
@@ -1422,6 +1554,29 @@ class TimeSeriesWidget(QFrame):
             except Exception:
                 pass
 
+        # Device databases are recreated on simulation restart. Keep already
+        # plotted real samples inside the rolling window and merge new samples.
+        merged = {}
+        cutoff = time.time() - 3600.0
+        for key in self.canvas.history_data.keys() | history_data.keys():
+            by_time = {}
+            for point in self.canvas.history_data.get(key, []) + history_data.get(key, []):
+                if not isinstance(point, dict):
+                    continue
+                timestamp = point.get("time")
+                if isinstance(timestamp, (int, float)) and math.isfinite(timestamp) and timestamp >= cutoff:
+                    by_time[timestamp] = point
+            merged[key] = [by_time[timestamp] for timestamp in sorted(by_time)]
+        history_data = merged
+
+        if self._reset_after_ts is not None:
+            history_data = {
+                key: [point for point in points if isinstance(point, dict)
+                      and isinstance(point.get("time"), (int, float))
+                      and point["time"] > self._reset_after_ts]
+                for key, points in history_data.items()
+            }
+
         # Derive BESS Charge and Discharge if missing but Battery.Power exists
         if "Battery.Power" in history_data and ("BESS.ChargePower" not in history_data or not history_data["BESS.ChargePower"]):
             chg_pts = []
@@ -1453,7 +1608,8 @@ class TimeSeriesWidget(QFrame):
                     pass
 
         if history_data:
-            self.canvas.update_history(history_data, window_seconds=3600.0)
+            if history_data != self.canvas.history_data or self.canvas.window_seconds != 3600.0:
+                self.canvas.update_history(history_data, window_seconds=3600.0)
 
             if self.compact:
                 grid_v = self._get_latest_val(history_data, "Grid.Voltage", "kV")
