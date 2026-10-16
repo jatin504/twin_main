@@ -24,6 +24,7 @@
     "Load.EV_StackPower",
     "Load.ServiceBlockPower",
     "PCS.ActivePowerOutput",
-    "PCS.AC_Voltage"
+    "PCS.AC_Voltage",
+    "Solar.PV_Power"
   ]
 }
