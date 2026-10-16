@@ -157,7 +157,7 @@ class NetworkManager:
 
         self.backend.set_converter_power(
             "PV1",
-            0,
+            float(self.db.value(Tags.SOLAR.PV_POWER) or 0.0),
         )
         # print("=" *70)
         # print("Load = ", load)

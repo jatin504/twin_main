@@ -124,7 +124,7 @@ class BranchSummaryWidget(QFrame):
 
         header = self.table.horizontalHeader()
         for column in range(7):
-            header.setSectionResizeMode(column, QHeaderView.Fixed)
+            header.setSectionResizeMode(column, QHeaderView.Stretch)
 
         self.table.setColumnWidth(0, 48)   # Branch / Feeder
         self.table.setColumnWidth(1, 62)   # From

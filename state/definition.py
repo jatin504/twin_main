@@ -14,6 +14,7 @@ from common.constants import (
 from common.enums import FaultCode, GridSource, PCSState
 from models.operating_mode import OperatingMode
 from state.database import StateDatabase
+from state.quality import Quality
 from state.variable import Variable, VariableMetadata
 
 from state.tags import Tags
@@ -312,6 +313,7 @@ VARIABLE_DEFINITIONS = [
         datatype=float,
         default=0.0,
         unit="kW",
+        enable_store=True,
     ),
 
     VariableDefinition(
@@ -319,6 +321,7 @@ VARIABLE_DEFINITIONS = [
         datatype=float,
         default=0.0,
         unit="kW",
+        enable_store=True,
     ),
 
     VariableDefinition(
@@ -629,6 +632,8 @@ def populate_database(database: StateDatabase, initial_values: dict[str, Any] | 
         database.add(
             Variable(
                 metadata=metadata,
+                quality=(Quality.NOT_INITIALIZED if definition.name == Tags.Battery.STORED_ENERGY
+                         else Quality.GOOD),
                 initial_value=initial_values.get(
                     definition.name,
                     definition.default,

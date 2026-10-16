@@ -283,7 +283,7 @@ class LineCanvas(QWidget):
 
         self.grid = GridIcon()
         self.grid.setParent(self)
-        self.grid.move(0, 7)
+        self.grid.move(0, 2)
         self.grid.setObjectName("GRID_ICON")
         self.grid.show()
         self.statusIcon1.raise_()
@@ -1151,6 +1151,7 @@ class PowerFlowWidget(QFrame):
                     for panel_no, panel_tags
                     in self.LT_PANEL_PPC_TAGS.items()
                 },
+                "grid_available": grid_db.value(Tags.Grid.AVAILABLE),
             }
 
             print(
@@ -1171,6 +1172,7 @@ class PowerFlowWidget(QFrame):
                 export_power=grid_data["export_power"],
                 frequency=grid_data["frequency"],
                 fault_code=grid_data["fault_code"],
+                grid_available=grid_data["grid_available"],
             )
             self.blockWidget.set_box_values(
                 grid_data["block_panel_values"][1]

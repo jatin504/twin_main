@@ -1,4 +1,5 @@
 import os
+import math
 from datetime import datetime, timedelta
 
 import yaml
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from state.tags import Tags
+from state.quality import Quality
 from ui.Widget.header import HeaderWidget
 from ui.Widget.navbar import NavBar
 from ui.Widget.ribbon import Ribbon
@@ -606,35 +608,48 @@ class MainWindow(QMainWindow):
 
         # ROW 2 - 2-COLUMN 1-HR TREND & ADJACENT VOLTAGE PROFILE GRAPH
         trendRow = QWidget()
-        trendRow.setFixedSize(1520, 270)
+        trendRow.setFixedHeight(300)
+        trend_layout = QHBoxLayout(trendRow)
+        trend_layout.setContentsMargins(0, 0, 0, 0)
+        trend_layout.setSpacing(10)
 
         # Left slot: 1-Hour Rolling Trends taking 2 columns of space (width: 1030)
         self.dashboardTimeSeries = TimeSeriesWidget(simulator=self.simulator, dashboard=True)
         self.dashboardTimeSeries.setParent(trendRow)
-        self.dashboardTimeSeries.setGeometry(0, 0, 1030, 265)
+        self.dashboardTimeSeries.setMinimumWidth(1000)
+        trend_layout.addWidget(self.dashboardTimeSeries, 2)
         self.dashboardTimeSeries.show()
 
         # Right slot: Adjacent Voltage Profile graph (width: 480)
         self.adjacentVoltageProfile = VoltageProfileWidget(simulator=self.simulator, width=480, height=265)
         self.adjacentVoltageProfile.setParent(trendRow)
-        self.adjacentVoltageProfile.setGeometry(1040, 0, 480, 265)
+        self.adjacentVoltageProfile.setMinimumWidth(480)
+        self.adjacentVoltageProfile.setMaximumSize(16777215, 16777215)
+        trend_layout.addWidget(self.adjacentVoltageProfile, 1)
         self.adjacentVoltageProfile.show()
 
         scrollLayout.addWidget(trendRow)
 
         # ROW 3 - BRANCH SUMMARY, BESS DISPATCH SCHEDULE (MIDDLE), BESS SUMMARY (RIGHT)
         secondRow = QWidget()
-        secondRow.setFixedSize(1520, 255)
+        secondRow.setMinimumHeight(255)
+        summary_layout = QHBoxLayout(secondRow)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.setSpacing(10)
 
         self.branchSummary = BranchSummaryWidget(plant_yaml_path=self.plant_yaml_path)
         self.branchSummary.setParent(secondRow)
-        self.branchSummary.setGeometry(0, 0, 390, 250)
+        self.branchSummary.setMinimumSize(390, 250)
+        self.branchSummary.setMaximumSize(16777215, 16777215)
+        summary_layout.addWidget(self.branchSummary, 4)
         self.branchSummary.show()
 
         # Middle slot: BESS Dispatch Schedule (expanded width: 630px)
         self.bessDispatchSchedule = BessDispatchScheduleWidget()
         self.bessDispatchSchedule.setParent(secondRow)
-        self.bessDispatchSchedule.setGeometry(400, 0, 630, 250)
+        self.bessDispatchSchedule.setMinimumWidth(630)
+        self.bessDispatchSchedule.setMaximumSize(16777215, 16777215)
+        summary_layout.addWidget(self.bessDispatchSchedule, 6)
 
         # Notification Toast popup for new event triggers
         self.event_toast = EventToast(self)
@@ -655,14 +670,16 @@ class MainWindow(QMainWindow):
         self._update_header_timing()
         # Keep all dispatch details inside the scrollable dashboard content.
         dispatch_height = max(250, self.bessDispatchSchedule.layout().minimumSize().height())
-        self.bessDispatchSchedule.setFixedHeight(dispatch_height)
-        secondRow.setFixedHeight(max(255, dispatch_height + 5))
+        self.bessDispatchSchedule.setMinimumHeight(dispatch_height)
+        secondRow.setMinimumHeight(max(255, dispatch_height + 5))
         self.bessDispatchSchedule.show()
 
         # Right slot: BESS Summary (compact width: 480px)
         self.bessSummary = BessSummaryWidget()
         self.bessSummary.setParent(secondRow)
-        self.bessSummary.setGeometry(1040, 0, 480, 250)
+        self.bessSummary.setMinimumSize(480, 250)
+        self.bessSummary.setMaximumSize(16777215, 16777215)
+        summary_layout.addWidget(self.bessSummary, 5)
         self.bessSummary.show()
 
         scrollLayout.addWidget(secondRow)
@@ -1168,10 +1185,30 @@ class MainWindow(QMainWindow):
         self.header.update_simulation_time(
             sim_dt.strftime("%d-%b-%Y   %H:%M:%S") if sim_dt else "—")
 
+    def _sync_dispatch_power_inputs(self, plant_db):
+        """Publish the active dispatch row's actual load/PV references in kW."""
+        schedule = getattr(self, "bessDispatchSchedule", None)
+        index = getattr(schedule, "running_row_index", None)
+        rows = getattr(schedule, "schedule_data", [])
+        if index is None or not 0 <= index < len(rows):
+            return
+        row = rows[index]
+        database = plant_db.device("PPC")
+        for tag, key in ((Tags.Network.LOAD_POWER, "load"), (Tags.SOLAR.PV_POWER, "pv")):
+            value = row.get(key)
+            if value is not None:
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(value) and value >= 0 and database.exists(tag):
+                    database.set(tag, value)
+
     def update_ribbon(self):
 
         try:
             plant_db = self.simulator.plant_database
+            self._sync_dispatch_power_inputs(plant_db)
             pcs_ids = sorted(
                 device_id
                 for device_id in plant_db.ids()
@@ -1187,6 +1224,7 @@ class MainWindow(QMainWindow):
                     "stored_energy": db.value(
                         Tags.Battery.STORED_ENERGY
                     ),
+                    "energy_ready": db.quality(Tags.Battery.STORED_ENERGY) == Quality.GOOD,
                     "active_power": db.value(
                         Tags.PCS.ACTIVE_POWER
                     ),
@@ -1262,6 +1300,8 @@ class MainWindow(QMainWindow):
                 "bess_power": grid_db.value(Tags.Battery.POWER),
                 "bess_soc": grid_db.value(Tags.Battery.SOC),
                 "bess_stored_energy": grid_db.value(Tags.Battery.STORED_ENERGY),
+                "bess_energy_ready": grid_db.quality(Tags.Battery.STORED_ENERGY) == Quality.GOOD,
+                "energy_source_key": tuple(id(plant_db.device(device_id)) for device_id in pcs_ids),
             }
 
             # Get active running event from dispatch schedule

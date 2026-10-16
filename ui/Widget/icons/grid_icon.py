@@ -18,6 +18,7 @@ class GridIcon(QWidget):
         self.export_power = 0.0
         self.frequency = 0.0
         self.fault_code = "None"
+        self.grid_available = True
 
     def paintEvent(self, e):
 
@@ -106,12 +107,16 @@ class GridIcon(QWidget):
             font.setBold(False)
             p.setFont(font)
 
-        fault_rect = QRect(55, 96, 90, 42)
+        fault_rect = QRect(55, 92, 90, 26)
         p.drawText(
             fault_rect,
             Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
             f"Fault: {self.fault_code}",
         )
+        font.setBold(False)
+        p.setFont(font)
+        p.setPen(QColor("#111827"))
+        p.drawText(55, 118, f"State: {str(self.grid_available).lower()}")
 
     def update_data(
         self,
@@ -120,11 +125,13 @@ class GridIcon(QWidget):
         export_power,
         frequency,
         fault_code,
+        grid_available=True,
     ):
         self.grid_voltage = grid_voltage
         self.import_power = import_power
         self.export_power = export_power
         self.frequency = frequency
+        self.grid_available = bool(grid_available)
         if fault_code is None:
             self.fault_code = "N/A"
         else:

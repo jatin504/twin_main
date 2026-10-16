@@ -153,6 +153,7 @@ class SixIntervalAxisItem(pg.AxisItem):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setStyle(tickTextOffset=8, autoExpandTextSpace=True)
+        self.enableAutoSIPrefix(False)  # Labels already declare explicit engineering units.
 
     def tickValues(self, minVal, maxVal, size):
         low, high = sorted((minVal, maxVal))
@@ -638,6 +639,9 @@ class TimeSeriesChartCanvas(QWidget):
 
         for group, view in active_views.items():
             low, high = ranges[group]
+            if group == "power" and high - low < 1.0:
+                center = (low + high) / 2.0
+                low, high = center - 0.5, center + 0.5
             if low == high:
                 padding = max(abs(low) * 0.05, 1.0)
             else:
@@ -1341,6 +1345,7 @@ class TimeSeriesWidget(QFrame):
         self.navigation_combo = QComboBox()
         self.navigation_combo.addItems(["Zoom Area", "Pan"])
         self.navigation_combo.setFixedHeight(24)
+        self.navigation_combo.setStyleSheet("QComboBox {background: #F8FAFC; color: #172B4D; border: 1px solid #CBD5E1; border-radius: 4px; padding: 2px 6px;} QComboBox QAbstractItemView {background: #FFFFFF; color: #172B4D; selection-background-color: #DBEAFE; selection-color: #172B4D;}")
         self.navigation_combo.setToolTip("Zoom Area: left-drag a rectangle to zoom. Pan: drag to move the chart.")
         self.navigation_combo.currentTextChanged.connect(self._set_navigation_mode)
         header_row.insertWidget(4 if self.dashboard else 3, self.navigation_combo)

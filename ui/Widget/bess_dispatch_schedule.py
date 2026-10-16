@@ -892,6 +892,10 @@ class BessDispatchScheduleWidget(QFrame):
 
         self._fullscreen_parent = parent
         self._fullscreen_geometry = self.geometry()
+        self._fullscreen_layout = parent.layout()
+        self._fullscreen_layout_index = (parent.layout().indexOf(self) if parent.layout() else -1)
+        self._fullscreen_minimum = self.minimumSize()
+        self._fullscreen_maximum = self.maximumSize()
 
         dialog = QDialog(parent.window())
         dialog.setWindowFlags(Qt.Window)
@@ -929,6 +933,10 @@ class BessDispatchScheduleWidget(QFrame):
             self.setParent(parent)
             self.setFixedSize(geometry.size())
             self.setGeometry(geometry)
+            if getattr(self, "_fullscreen_layout", None) is not None:
+                self.setMinimumSize(self._fullscreen_minimum)
+                self.setMaximumSize(self._fullscreen_maximum)
+                self._fullscreen_layout.insertWidget(self._fullscreen_layout_index, self, 6)
             self.schedule_scroll.setFixedHeight(78)
             self._set_fullscreen_fonts(False)
             self.fullscreen_button.setText("⛶")

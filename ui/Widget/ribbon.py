@@ -1,3 +1,4 @@
+import math
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget,
@@ -409,9 +410,13 @@ class Ribbon(QWidget):
         # Live stored energy is in kWh; schedule energy is in MWh.
         stored_values = [float(pcs["stored_energy"]) for pcs in pcs_data
                          if pcs.get("stored_energy") is not None]
-        if stored_values:
-            total_available_energy = sum(stored_values) / 1000.0
-        elif grid_data.get("bess_stored_energy") is not None:
+        if pcs_data:
+            energy_ready = (len(stored_values) == len(pcs_data)
+                            and all(pcs.get("energy_ready", True) for pcs in pcs_data)
+                            and all(math.isfinite(value) for value in stored_values))
+            total_available_energy = sum(stored_values) / 1000.0 if energy_ready else None
+        elif (grid_data.get("bess_stored_energy") is not None
+              and grid_data.get("bess_energy_ready", True)):
             total_available_energy = float(grid_data["bess_stored_energy"]) / 1000.0
         else:
             total_available_energy = None
@@ -421,21 +426,25 @@ class Ribbon(QWidget):
                                if total_available_energy is not None else None)
 
         # Capture once per event occurrence, including repeated IDs on a new timestamp.
-        event_key = ((active_event.get("event_id"), active_event.get("time_stamp"))
+        event_key = ((active_event.get("event_id"), active_event.get("time_stamp"),
+                      grid_data.get("energy_source_key"))
                      if active_event else None)
         if event_key != self._event_key:
             self._event_key = event_key
             self._event_start_energy_mwh = total_available_energy if event_key else None
-            self._event_start_soc = avg_soc if event_key else None
+            self._event_start_soc = avg_soc if event_key and total_available_energy is not None else None
         elif event_key and self._event_start_energy_mwh is None:
             self._event_start_energy_mwh = total_available_energy
+            if total_available_energy is not None:
+                self._event_start_soc = avg_soc
 
         delta_mwh = (self._event_start_energy_mwh - total_available_energy
                      if self._event_start_energy_mwh is not None
                      and total_available_energy is not None else 0.0)
         if abs(delta_mwh) < 0.005:
             delta_mwh = 0.0
-        self.bess_charge_discharge.valueLbl.setText(f"{delta_mwh:.2f} MWh")
+        self.bess_charge_discharge.valueLbl.setText(
+            f"{delta_mwh:.2f} MWh" if total_available_energy is not None else "— MWh")
 
         self.bess_usable_available.valueLbl.setText(
             f"{total_usable_energy:.2f} MWh" if total_usable_energy is not None else "— MWh"
