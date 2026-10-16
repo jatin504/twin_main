@@ -677,11 +677,12 @@ class TimeSeriesChartCanvas(QWidget):
                 existing = None
             if existing is None:
                 curve = pg.PlotDataItem(
-                    pen=pg.mkPen(color, width=1), name=label,
-                    antialias=False, connect="finite",
+                    pen=pg.mkPen(color, width=1.5 if self.dashboard_style else 2), name=label,
+                    antialias=True, connect="finite",
                 )
-                curve.setDownsampling(auto=True, method="peak")
-                curve.setClipToView(True)
+                # Preserve the original line appearance and every recorded sample.
+                curve.setDownsampling(ds=1, auto=False)
+                curve.setClipToView(False)
                 if key in self.AREA_CURVE_METRICS:
                     curve.setFillLevel(0)
                     curve.setBrush(pg.mkBrush(color + "40"))
