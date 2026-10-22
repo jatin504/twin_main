@@ -1059,6 +1059,7 @@ class PowerFlowWidget(QFrame):
                         Tags.PCS.AC_VOLTAGE
                     ),
                     "active_power": pcs_pwr,
+                    "pcs_state": db.value(Tags.PCS.STATE),
                     "fault_code": db.value(
                         Tags.Fault.CODE
                     )
@@ -1089,7 +1090,8 @@ class PowerFlowWidget(QFrame):
                 widget.update_data(
                     power_kw=data["active_power"],
                     ac_voltage=data["ac_voltage"],
-                    fault_code=data["fault_code"]
+                    fault_code=data["fault_code"],
+                    pcs_state=data["pcs_state"],
                 )
 
             except Exception as e:

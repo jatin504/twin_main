@@ -1,7 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout
 
-from common.enums import FaultCode
+from common.enums import PCSState
 
 
 class PCSWidget(QWidget):
@@ -83,7 +83,7 @@ class PCSWidget(QWidget):
         }
         """)
 
-        self.fault_code = QLabel("0")
+        self.fault_code = QLabel("—")  # Existing label now displays the live PCS state.
 
         self.fault_code.setStyleSheet("""
         QLabel{
@@ -141,6 +141,7 @@ class PCSWidget(QWidget):
         pf=None,
         ac_voltage=None,
         fault_code=None,
+        pcs_state=None,
     ):
 
         # --------------------------------------------------
@@ -263,9 +264,11 @@ class PCSWidget(QWidget):
                 f"{ac_voltage:.2f}V"
             )
 
-        # AC Voltage
-        if fault_code is not None:
-        
-            self.fault_code.setText(
-                f"{FaultCode(fault_code).name}"
-            )
+        # Display the PCS operating state in the existing bottom label.
+        if pcs_state is not None:
+            try:
+                state_name = PCSState(pcs_state).name
+            except (TypeError, ValueError):
+                state_name = "UNKNOWN"
+            self.fault_code.setText(state_name)
+            self.fault_code.setToolTip(state_name)
