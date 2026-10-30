@@ -232,7 +232,7 @@ class MainWindow(QMainWindow):
         )
         custom_layout.addSpacing(2)
         self.plantControlCards = PlantControlCards(
-            initial_values=self.get_yaml_transformer_impedance()
+            transformer_list=self.get_yaml_transformer_impedance()
         )
         custom_layout.addWidget(
             self.plantControlCards,
@@ -622,9 +622,22 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            self.simulator.reset(
+            new_net = self.simulator.reset(
                 restart=True
             )
+            if new_net is not None:
+                self.network_manager = new_net
+            elif hasattr(self.simulator, "_network") and self.simulator._network is not None:
+                self.network_manager = self.simulator._network
+
+            if hasattr(self, "voltageProfile") and hasattr(self.voltageProfile, "set_simulator"):
+                self.voltageProfile.set_simulator(self.simulator)
+
+            if hasattr(self, "bessDispatchSchedule") and self.bessDispatchSchedule is not None:
+                self.bessDispatchSchedule.elapsed_seconds = 0
+                if hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
+                    self.bessDispatchSchedule.set_running_event(self.bessDispatchSchedule.schedule[0].get("event_id"))
+
             self.simulation_button.setText(
                 "■ Stop Simulation"
             )
@@ -643,6 +656,8 @@ class MainWindow(QMainWindow):
                 }
             """)
             print("Simulation Restarted")
+
+            self.update_voltage_profile()
         except Exception as e:
             print(
                 "RESTART SIMULATION ERROR:",
@@ -685,14 +700,16 @@ class MainWindow(QMainWindow):
                         break
 
             # ==================================================
-            # TRANSFORMER R / X
+            # TRANSFORMER R / X  (ALL TRANSFORMERS)
             # ==================================================
-            impedance = self.plantControlCards.get_impedance()
+            all_impedances = self.plantControlCards.get_all_impedances()
             for transformer in data.get(
                 "transformers",
                 []
             ):
-                if transformer.get("id") == "T1":
+                tx_id = transformer.get("id")
+                if tx_id in all_impedances:
+                    impedance = all_impedances[tx_id]
                     if "impedance" not in transformer:
                         transformer["impedance"] = {}
                     transformer["impedance"]["r_pu"] = float(
@@ -702,11 +719,10 @@ class MainWindow(QMainWindow):
                         impedance["x_pu"]
                     )
                     print(
-                        f"T1 | "
+                        f"{tx_id} | "
                         f"R={impedance['r_pu']} pu | "
                         f"X={impedance['x_pu']} pu"
                     )
-                    break
 
             # ==================================================
             # SAVE YAML
@@ -733,6 +749,11 @@ class MainWindow(QMainWindow):
             )
 
     def get_yaml_transformer_impedance(self):
+        """
+        Returns a list of all transformers with their
+        IDs and impedance values from the YAML file.
+        """
+        result = []
         try:
             with open(
                 self.plant_yaml_path,
@@ -743,25 +764,23 @@ class MainWindow(QMainWindow):
 
             transformers = data.get("transformers", [])
             for transformer in transformers:
-                if transformer.get("id") == "T1":
-                    impedance = transformer.get(
-                        "impedance",
-                        {}
-                    )
-                    return {
-                        "r_pu": impedance.get("r_pu", 0.01),
-                        "x_pu": impedance.get("x_pu", 0.04),
-                    }
+                tx_id = transformer.get("id", "T?")
+                impedance = transformer.get(
+                    "impedance",
+                    {}
+                )
+                result.append({
+                    "id": tx_id,
+                    "r_pu": impedance.get("r_pu", 0.01),
+                    "x_pu": impedance.get("x_pu", 0.04),
+                })
         except Exception as e:
             print(
                 "TRANSFORMER YAML LOAD ERROR:",
                 e
             )
 
-        return {
-            "r_pu": 0.01,
-            "x_pu": 0.04,
-        }
+        return result
 
     def get_yaml_soc_soh(self):
         result = {}
@@ -871,14 +890,14 @@ class MainWindow(QMainWindow):
             bess_rows = []
 
             for index, pcs in enumerate(pcs_data, start=1):
-                active_power = pcs.get("active_power", 0)
+                active_power = pcs.get("active_power", 0) or 0
                 soc = pcs.get("soc", 0)
                 stored_energy = pcs.get("stored_energy", 0)
 
                 if active_power < 0:
-                    status = "Discharging"
-                elif active_power > 0:
                     status = "Charging"
+                elif active_power > 0:
+                    status = "Discharging"
                 else:
                     status = "Standby"
 
@@ -904,6 +923,8 @@ class MainWindow(QMainWindow):
             )
 
     def update_voltage_profile(self):
+        if self.simulator and getattr(self.simulator, "_network", None) is not None:
+            self.network_manager = self.simulator._network
 
         if not self.network_manager:
             print("ERROR: NetworkManager is None")

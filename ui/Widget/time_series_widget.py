@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from bisect import bisect_left
+import copy
 import json
 import math
+import numpy as np
 import os
 import time
 from datetime import datetime
-from PySide6.QtCore import Qt, QPoint, QRect, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen, QFont, QBrush, QLinearGradient
+from common.constants import IST
+import pyqtgraph as pg
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent
+from state.tags import Tags
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QWidget,
@@ -18,44 +24,218 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QSizePolicy,
+    QScrollArea,
 )
+
+
+class CheckableComboBox(QComboBox):
+    selectionChanged = Signal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._checked_items: set[str] = set()
+        self._updating = False
+        self._keep_popup_open = False
+        self._last_toggled_index = None
+        self._toggle_reset_timer = QTimer(self)
+        self._toggle_reset_timer.setSingleShot(True)
+        self._toggle_reset_timer.timeout.connect(self._reset_toggle_state)
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.lineEdit().setPlaceholderText("Select metrics")
+        self.currentIndexChanged.connect(
+            lambda _index: self._update_display_text()
+        )
+        self.view().clicked.connect(self._toggle_item)
+        self.view().pressed.connect(self._keep_popup_open_on_press)
+        self.activated.connect(self._toggle_activated_item)
+
+    def add_check_item(self, text: str, data: str):
+        self.addItem(text, data)
+        item = self.model().item(self.count() - 1)
+        item.setFlags(
+            (item.flags() | Qt.ItemIsEnabled) & ~Qt.ItemIsUserCheckable
+        )
+        item.setCheckState(Qt.Unchecked)
+
+    def checked_data(self) -> set[str]:
+        return set(self._checked_items)
+
+    def set_checked_data(self, data):
+        checked = set(data or ())
+        if "ALL" in checked or not checked:
+            checked = {"ALL"}
+
+        self._updating = True
+        try:
+            self._checked_items = checked
+            for index in range(self.count()):
+                item = self.model().item(index)
+                item.setCheckState(
+                    Qt.Checked if self.itemData(index) in checked else Qt.Unchecked
+                )
+            self._update_display_text()
+        finally:
+            self._updating = False
+
+    def _toggle_item(self, model_index):
+        self._toggle_index(model_index.row())
+
+    def _toggle_activated_item(self, index):
+        self._toggle_index(index)
+
+    def _toggle_index(self, index: int):
+        if self._updating:
+            return
+        if (
+            self._toggle_reset_timer.isActive()
+            and self._last_toggled_index == index
+        ):
+            return
+        self._last_toggled_index = index
+        self._keep_popup_open = True
+        key = self.itemData(index)
+        if key == "ALL":
+            self.set_checked_data({"ALL"})
+        else:
+            checked = self.checked_data()
+            checked.discard("ALL")
+            if key in checked:
+                checked.remove(key)
+            else:
+                checked.add(key)
+            self.set_checked_data(checked)
+
+        self.selectionChanged.emit(self.checked_data())
+        self._toggle_reset_timer.start(0)
+
+    def _keep_popup_open_on_press(self, _model_index):
+        self._keep_popup_open = True
+
+    def _reset_toggle_state(self):
+        self._last_toggled_index = None
+        self._keep_popup_open = False
+
+    def hidePopup(self):
+        if self._keep_popup_open:
+            self._keep_popup_open = False
+            return
+        super().hidePopup()
+
+    def _update_display_text(self):
+        if self._checked_items == {"ALL"}:
+            index = self.findData("ALL")
+            text = self.itemText(index) if index >= 0 else "All Trends"
+        elif len(self._checked_items) == 1:
+            key = next(iter(self._checked_items))
+            index = self.findData(key)
+            text = self.itemText(index) if index >= 0 else key
+        else:
+            text = f"{len(self._checked_items)} metrics selected"
+        self.lineEdit().setText(text)
+
+
+class TimeAxisItem(pg.AxisItem):
+    def tickStrings(self, values, scale, spacing):
+        labels = []
+        for value in values:
+            try:
+                dt = datetime.fromtimestamp(float(value), tz=IST)
+                labels.append(
+                    dt.strftime("%H:%M:%S" if spacing < 60 else "%H:%M")
+                )
+            except (ValueError, TypeError, OSError, OverflowError):
+                labels.append("")
+        return labels
+
+
+class SixIntervalAxisItem(pg.AxisItem):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setStyle(tickTextOffset=8, autoExpandTextSpace=True)
+        self.enableAutoSIPrefix(False)  # Labels already declare explicit engineering units.
+
+    def tickValues(self, minVal, maxVal, size):
+        low, high = sorted((minVal, maxVal))
+        if not math.isfinite(low) or not math.isfinite(high) or high <= low:
+            return super().tickValues(minVal, maxVal, size)
+
+        spacing = (high - low) / 6.0
+        values = np.linspace(low, high, 7).tolist()
+        return [(spacing, values)]
 
 
 class TimeSeriesChartCanvas(QWidget):
     """
-    QPainter-based high-performance time-series chart canvas for 1-hour rolling historical trends.
-    Supports both compact 330x250 embed view and full-screen 1080p display.
+    PyQtGraph-based chart canvas for one-hour rolling historical trends.
     """
 
+    TOOLTIP_BACKGROUND_ALPHA = 155
+
+    AREA_CURVE_METRICS = {
+        "BESS.ChargePower",
+        "BESS.DischargePower",
+    }
+
     METRIC_CONFIG = {
-        "SOC": {
-            "label": "Battery SOC",
-            "unit": "%",
-            "color": "#16A34A",  # Emerald Green
+        Tags.SOLAR.PV_POWER: {
+            "label": "Solar Generation",
+            "unit": "kW",
+            "color": "#F97316",  # Sun Orange (Exclusive Area Spline)
             "scale": 1.0,
-            "nominal": (45.0, 60.0),
-            "tier": (0.75, 0.95),
+            "nominal": (0.0, 1500.0),
+            "tier": (0.05, 0.25),
+            "fill": True,
         },
         "Network.LoadPower": {
-            "label": "Load Demand",
+            "label": "Load",
             "unit": "kW",
-            "color": "#0D9488",  # Teal
+            "color": "#6366F1",  # Modern Indigo
             "scale": 1.0,
             "nominal": (1500.0, 4500.0),
             "tier": (0.05, 0.25),
+            "fill": False,
         },
-        "Grid.Voltage": {
-            "label": "Grid 33kV Voltage",
-            "unit": "kV",
-            "color": "#2563EB",  # Royal Blue
+        "BESS.ChargePower": {
+            "label": "BESS Charge",
+            "unit": "kW",
+            "color": "#10B981",  # Emerald Green
             "scale": 1.0,
-            "nominal": (31.0, 35.0),
-            "tier": (0.30, 0.45),
+            "nominal": (0.0, 2500.0),
+            "tier": (0.05, 0.25),
+            "fill": False,
+        },
+        "BESS.DischargePower": {
+            "label": "BESS Discharge",
+            "unit": "kW",
+            "color": "#EC4899",  # Rose Pink
+            "scale": 1.0,
+            "nominal": (0.0, 2500.0),
+            "tier": (0.05, 0.25),
+            "fill": False,
+        },
+        "Grid.ImportPower": {
+            "label": "Grid Import",
+            "unit": "kW",
+            "color": "#8B5CF6",  # Violet Purple
+            "scale": 1.0,
+            "nominal": (0.0, 4000.0),
+            "tier": (0.05, 0.25),
+            "fill": False,
+        },
+        "Grid.ExportPower": {
+            "label": "Grid Export",
+            "unit": "kW",
+            "color": "#06B6D4",  # Cyan Blue
+            "scale": 1.0,
+            "nominal": (0.0, 4000.0),
+            "tier": (0.05, 0.25),
+            "fill": False,
         },
         "Grid.BUS_A_Voltage": {
             "label": "Bus 433 A Voltage",
             "unit": "V",
-            "color": "#3B82F6",  # Blue
+            "color": "#3B82F6",  # Phase A: Royal Blue
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
@@ -63,7 +243,7 @@ class TimeSeriesChartCanvas(QWidget):
         "Grid.BUS_B_Voltage": {
             "label": "Bus 433 B Voltage",
             "unit": "V",
-            "color": "#8B5CF6",  # Violet
+            "color": "#A855F7",  # Phase B: Purple
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
@@ -71,26 +251,42 @@ class TimeSeriesChartCanvas(QWidget):
         "Grid.BUS_C_Voltage": {
             "label": "Bus 433 C Voltage",
             "unit": "V",
-            "color": "#EC4899",  # Pink
+            "color": "#F43F5E",  # Phase C: Coral Crimson
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
         },
-        "Network.LoadVoltage": {
-            "label": "Load Bus Voltage",
-            "unit": "V",
-            "color": "#9333EA",  # Purple
+        "Grid.Voltage": {
+            "label": "Grid 33kV Voltage",
+            "unit": "kV",
+            "color": "#1D4ED8",  # 33kV Grid: Deep Navy Blue
             "scale": 1.0,
-            "nominal": (400.0, 440.0),
-            "tier": (0.45, 0.65),
+            "nominal": (31.0, 35.0),
+            "tier": (0.30, 0.45),
         },
         "PCS.AC_Voltage": {
             "label": "PCS Bus Voltage",
             "unit": "V",
-            "color": "#F59E0B",  # Amber
+            "color": "#0D9488",  # PCS Bus: Teal
             "scale": 1.0,
             "nominal": (400.0, 440.0),
             "tier": (0.45, 0.65),
+        },
+        "PCS.ACVoltage": {
+            "label": "PCS Bus Voltage",
+            "unit": "V",
+            "color": "#0D9488",  # Alias
+            "scale": 1.0,
+            "nominal": (400.0, 440.0),
+            "tier": (0.45, 0.65),
+        },
+        "SOC": {
+            "label": "Battery SOC",
+            "unit": "%",
+            "color": "#15803D",  # Forest Green
+            "scale": 1.0,
+            "nominal": (45.0, 60.0),
+            "tier": (0.75, 0.95),
         },
         "Battery.Power": {
             "label": "Battery Power",
@@ -108,10 +304,18 @@ class TimeSeriesChartCanvas(QWidget):
             "nominal": (0.0, 2500.0),
             "tier": (0.05, 0.25),
         },
+        "Network.LoadVoltage": {
+            "label": "Load Bus Voltage",
+            "unit": "V",
+            "color": "#D946EF",  # Fuchsia
+            "scale": 1.0,
+            "nominal": (400.0, 440.0),
+            "tier": (0.45, 0.65),
+        },
         "Grid.Frequency": {
             "label": "Frequency",
             "unit": "Hz",
-            "color": "#0284C7",  # Sky Blue
+            "color": "#64748B",  # Slate Grey
             "scale": 1.0,
             "nominal": (49.5, 50.5),
             "tier": (0.20, 0.35),
@@ -122,419 +326,534 @@ class TimeSeriesChartCanvas(QWidget):
         super().__init__(parent)
         self.setMinimumHeight(160)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Raw history data dict: { tag_name: [ {"time": float, "value": float, ...}, ... ] }
         self.history_data: dict[str, list[dict]] = {}
-        self.selected_metric: str = "ALL"  # "ALL" or specific tag key
-        self.window_seconds: float = 3600.0  # 1 hour window
+        self.selected_metric = "ALL"
+        self.selected_metrics: set[str] = {"ALL"}
+        self.anchor_ts = None
+        self.window_seconds = 3600.0
+        self.dashboard_style = False
+        self._visible_metric_samples: dict[str, list[tuple[float, float]]] = {}
+        self._curve_items = {}
+        self._interaction_until = 0.0
+        self._pending_history = None
+        self._interaction_timer = QTimer(self)
+        self._interaction_timer.setSingleShot(True)
+        self._interaction_timer.timeout.connect(self._flush_pending_history)
+        self._data_items: list[tuple[pg.ViewBox, pg.PlotDataItem]] = []
+        self._hover_markers: dict[
+            str, tuple[pg.ViewBox, pg.ScatterPlotItem, str, dict]
+        ] = {}
 
-        # Interactive hover state
-        self.setMouseTracking(True)
-        self.hover_pos: QPoint | None = None
-        self.hover_active: bool = False
+        self.plot = pg.PlotWidget(
+            axisItems={
+                "bottom": TimeAxisItem(orientation="bottom"),
+                "left": SixIntervalAxisItem(orientation="left"),
+            }
+        )
+        self.plot.setBackground("#FFFFFF")
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
+        self.plot.setMouseEnabled(x=True, y=True)
+        self.plot_item = self.plot.getPlotItem()
+        self.plot_item.layout.setContentsMargins(8, 16, 8, 16)
+        self.main_view = self.plot_item.getViewBox()
+        self._manual_navigation = False
+        self.main_view.sigRangeChangedManually.connect(self._on_manual_navigation)
+        self.main_view.setMouseMode(pg.ViewBox.RectMode)
+        self.main_view.rbScaleBox.setPen(pg.mkPen("#2563EB", width=1.5))
+        self.main_view.rbScaleBox.setBrush(pg.mkBrush(59, 130, 246, 40))
+        self._chart_column = 1
+        self._overlay_slots: list[tuple[pg.AxisItem, pg.ViewBox]] = []
+        self.plot_item.hideAxis("right")
+        self.plot_item.layout.removeItem(self.plot_item.getAxis("right"))
+        self._sync_overlay_views()
+        self.main_view.sigResized.connect(self._sync_overlay_views)
+        self.v_line = pg.InfiniteLine(
+            angle=90,
+            movable=False,
+            pen=pg.mkPen("#64748B", width=1, style=Qt.DashLine),
+        )
+        self.plot.addItem(self.v_line, ignoreBounds=True)
+        self.v_line.hide()
+        self._hover_tooltip = QLabel(self.plot)
+        self._hover_tooltip.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._hover_tooltip.setWordWrap(True)
+        self._hover_tooltip.setMaximumWidth(360)
+        self._hover_tooltip.setStyleSheet(
+            "QLabel {"
+            f"background-color: rgba(255, 255, 255, {self.TOOLTIP_BACKGROUND_ALPHA});"
+            "color: #0F172A;"
+            "border: 1px solid #CBD5E1;"
+            "border-radius: 6px;"
+            "padding: 8px;"
+            "font-size: 10px;"
+            "}"
+        )
+        self._hover_tooltip.hide()
+        self._mouse_proxy = pg.SignalProxy(
+            self.plot.scene().sigMouseMoved, rateLimit=30, slot=self._on_mouse_proxy)
+        self.plot.viewport().installEventFilter(self)
+        self.plot.installEventFilter(self)
 
-    def mouseMoveEvent(self, event):
-        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
-        self.hover_pos = pos
-        self.hover_active = True
-        self.update()
-        super().mouseMoveEvent(event)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.plot)
 
-    def leaveEvent(self, event):
-        self.hover_active = False
-        self.hover_pos = None
-        self.update()
-        super().leaveEvent(event)
+    def set_selected_metric(self, metric):
+        if isinstance(metric, (list, set, tuple)):
+            selected = set(metric)
+            if "ALL" in selected or not selected:
+                selected = {"ALL"}
+            self.selected_metrics = selected
+            if selected == {"ALL"}:
+                self.selected_metric = "ALL"
+            elif len(selected) == 1:
+                self.selected_metric = next(iter(selected))
+            else:
+                self.selected_metric = "MULTI"
+        else:
+            self.selected_metric = metric
+            self.selected_metrics = {metric}
+        self.update_history(self.history_data, self.window_seconds)
 
-    def set_selected_metric(self, metric: str):
-        self.selected_metric = metric
-        self.update()
+    @staticmethod
+    def _unit_group(key: str, config: dict) -> str:
+        unit = config.get("unit", "")
+        if unit == "kW":
+            return "power"
+        if unit in ("V", "kV"):
+            return "voltage"
+        if unit == "%":
+            return "soc"
+        if unit == "Hz":
+            return "frequency"
+        return f"unit:{unit}" if unit else f"metric:{key}"
 
-    def update_history(self, history_data: dict[str, list[dict]], window_seconds: float = 3600.0):
-        self.history_data = history_data
-        self.window_seconds = window_seconds
-        self.update()
+    @staticmethod
+    def _group_label(group: str, config: dict) -> str:
+        labels = {
+            "power": "Power (kW)",
+            "voltage": "Voltage (V)",
+            "soc": "SOC (%)",
+            "frequency": "Frequency (Hz)",
+        }
+        if group in labels:
+            return labels[group]
+        unit = config.get("unit", "")
+        return f"Value ({unit})" if unit else config.get("label", "Value")
 
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+    @staticmethod
+    def _plot_value(group: str, config: dict, value: float) -> float:
+        if group == "voltage" and config.get("unit") == "kV":
+            return value * 1000.0
+        return value
 
-        w = self.width()
-        h = self.height()
+    def _ensure_overlay_slot(self, index: int) -> tuple[pg.AxisItem, pg.ViewBox]:
+        while len(self._overlay_slots) <= index:
+            layout = self.plot_item.layout
+            center_items = [
+                (row, layout.itemAt(row, self._chart_column))
+                for row in range(layout.rowCount())
+            ]
+            center_items = [
+                (row, item) for row, item in center_items if item is not None
+            ]
+            axes = [axis for axis, _ in self._overlay_slots]
+            for _, item in center_items:
+                layout.removeItem(item)
+            for axis in axes:
+                layout.removeItem(axis)
+            for row, item in center_items:
+                layout.addItem(item, row, self._chart_column + 1)
+            for slot_index, (axis, _) in enumerate(self._overlay_slots):
+                layout.addItem(
+                    axis,
+                    2,
+                    len(self._overlay_slots) + 1 - slot_index,
+                )
+            self._chart_column += 1
+            axis = SixIntervalAxisItem(orientation="left")
+            layout.addItem(axis, 2, 1)
+            view = pg.ViewBox(enableMenu=False)
+            view.setMouseEnabled(x=False, y=False)
+            self.plot_item.scene().addItem(view)
+            axis.linkToView(view)
+            view.setXLink(self.main_view)
+            self._overlay_slots.append((axis, view))
+            self._sync_overlay_views()
+        return self._overlay_slots[index]
 
-        is_compact = (w < 460)
-
-        # Canvas bounds
-        left = 42 if is_compact else 65
-        right = w - (10 if is_compact else 24)
-        top = 10 if is_compact else 25
-        bottom = h - (24 if is_compact else 38)
-        chart_width = max(10, right - left)
-        chart_height = max(10, bottom - top)
-
-        # Background
-        p.fillRect(0, 0, w, h, QColor("#FFFFFF"))
-
-        # Check if we have any data
-        has_data = any(len(pts) > 0 for pts in self.history_data.values()) if self.history_data else False
-        if not has_data:
-            p.setPen(QColor("#9CA3AF"))
-            font = QFont("Segoe UI", 9 if is_compact else 10)
-            p.setFont(font)
-            p.drawText(
-                QRect(0, 0, w, h),
-                Qt.AlignCenter,
-                "Loading 1-hour historical data...",
-            )
+    def _sync_overlay_views(self):
+        if not hasattr(self, "main_view"):
             return
+        geometry = self.main_view.sceneBoundingRect()
+        for _, view in self._overlay_slots:
+            view.setGeometry(geometry)
+            view.linkedViewChanged(self.main_view, view.XAxis)
 
-        # Determine which metrics to plot
-        if self.selected_metric == "ALL":
-            default_keys = ["SOC", "Grid.Voltage", "Network.LoadPower", "Grid.BUS_A_Voltage", "Battery.Power"]
-            active_keys = [k for k in default_keys if k in self.history_data and self.history_data[k]]
+    def update_history(
+        self,
+        history_data: dict[str, list[dict]] | None,
+        window_seconds: float = 3600.0,
+    ):
+        if history_data and time.monotonic() < self._interaction_until:
+            self._pending_history = (history_data, window_seconds)
+            self._interaction_timer.start(220)
+            return
+        self._pending_history = None
+        previous_range = self.main_view.viewRange()
+        self.history_data = history_data or {}
+        self.window_seconds = max(1.0, float(window_seconds))
+
+        plot_item = self.plot.getPlotItem()
+        active_item_keys = set()
+
+        all_metrics_selected = self.selected_metrics == {"ALL"}
+        multiple_metrics_selected = all_metrics_selected or len(self.selected_metrics) > 1
+        if all_metrics_selected:
+            active_keys = [
+                key for key in self.METRIC_CONFIG
+                if self.history_data.get(key)
+            ]
             if not active_keys:
-                active_keys = [k for k in self.history_data.keys() if self.history_data[k]][:5]
+                active_keys = [
+                    key for key, points in self.history_data.items() if points
+                ][:8]
+        elif self.selected_metrics:
+            active_keys = [
+                key for key in self.selected_metrics
+                if self.history_data.get(key)
+            ]
         else:
-            active_keys = [self.selected_metric] if (self.selected_metric in self.history_data and self.history_data[self.selected_metric]) else []
+            active_keys = []
 
-        if not active_keys:
-            p.setPen(QColor("#9CA3AF"))
-            p.drawText(QRect(0, 0, w, h), Qt.AlignCenter, f"No records found for {self.selected_metric}")
+        if not multiple_metrics_selected:
+            config = self.METRIC_CONFIG.get(self.selected_metric, {})
+            label = config.get("label", self.selected_metric)
+            unit = config.get("unit", "")
+            plot_item.setLabel("left", f"{label} ({unit})" if unit else label)
+
+        valid_series = []
+        for key in active_keys:
+            points = self.history_data.get(key, [])
+            samples = []
+            for point in points:
+                try:
+                    timestamp = float(point.get("time"))
+                    value = float(point.get("value"))
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                if math.isfinite(timestamp) and math.isfinite(value):
+                    samples.append((timestamp, value))
+
+            if not samples:
+                continue
+            samples.sort(key=lambda sample: sample[0])
+            config = self.METRIC_CONFIG.get(key, {})
+            valid_series.append((key, config, samples))
+
+        timestamps = [timestamp for points in self.history_data.values() for point in points
+                      if isinstance(point, dict)
+                      for timestamp in [point.get("time")]
+                      if isinstance(timestamp, (int, float)) and math.isfinite(timestamp)]
+        anchor = self.anchor_ts if self.anchor_ts is not None else (max(timestamps) if timestamps else time.time())
+        cutoff = anchor - self.window_seconds
+        valid_series = [(key, config, [(t, v) for t, v in samples if cutoff <= t <= anchor])
+                        for key, config, samples in valid_series]
+        valid_series = [(key, config, samples) for key, config, samples in valid_series if samples]
+        self._visible_metric_samples = {
+            key: [(timestamp, value) for timestamp, value in samples]
+            for key, _, samples in valid_series
+        }
+
+        groups: dict[str, list[tuple[str, dict, list[tuple[float, float]]]]] = {}
+        for key, config, samples in valid_series:
+            group = self._unit_group(key, config)
+            groups.setdefault(group, []).append((key, config, samples))
+
+        if multiple_metrics_selected and groups:
+            primary_group = "power" if "power" in groups else next(iter(groups))
+            primary_config = groups[primary_group][0][1]
+            plot_item.setLabel(
+                "left",
+                self._group_label(primary_group, primary_config),
+            )
+            overlay_groups = [
+                group for group in groups if group != primary_group
+            ]
+        else:
+            primary_group = None
+            overlay_groups = []
+            if multiple_metrics_selected:
+                plot_item.setLabel("left", "Value")
+            for _, view in self._overlay_slots:
+                view.setVisible(False)
+            for axis, _ in self._overlay_slots:
+                axis.hide()
+
+        active_views: dict[str, pg.ViewBox] = {}
+        ranges: dict[str, tuple[float, float]] = {}
+        if primary_group is not None:
+            active_views[primary_group] = self.main_view
+
+        for key, config, samples in valid_series:
+            group = self._unit_group(key, config)
+            group_values = [
+                self._plot_value(
+                    group,
+                    config,
+                    self._area_curve_value(key, value),
+                )
+                for _, value in samples
+            ]
+            ranges.setdefault(group, (min(group_values), max(group_values)))
+            if group_values:
+                old_low, old_high = ranges[group]
+                ranges[group] = (
+                    min(old_low, min(group_values)),
+                    max(old_high, max(group_values)),
+                )
+
+        for slot_index, group in enumerate(overlay_groups):
+            axis, view = self._ensure_overlay_slot(slot_index)
+            config = groups[group][0][1]
+            axis.setLabel(self._group_label(group, config))
+            axis.setTextPen(pg.mkPen(config.get("color", "#475569")))
+            axis.show()
+            view.setVisible(True)
+            active_views[group] = view
+
+        for slot_index in range(len(overlay_groups), len(self._overlay_slots)):
+            axis, view = self._overlay_slots[slot_index]
+            axis.hide()
+            view.setVisible(False)
+
+        if not multiple_metrics_selected and valid_series:
+            key, config, samples = valid_series[0]
+            group = self._unit_group(key, config)
+            active_views[group] = self.main_view
+            values = [
+                self._area_curve_value(key, value)
+                for _, value in samples
+            ]
+            ranges[group] = (min(values), max(values))
+
+        for group, view in active_views.items():
+            low, high = ranges[group]
+            if group == "power" and high - low < 1.0:
+                center = (low + high) / 2.0
+                low, high = center - 0.5, center + 0.5
+            if low == high:
+                padding = max(abs(low) * 0.05, 1.0)
+            else:
+                padding = (high - low) * 0.10
+            low -= padding
+            high += padding
+            view.enableAutoRange(view.YAxis, False)
+            if not self._manual_navigation or view is not self.main_view:
+                view.setYRange(low, high, padding=0)
+
+        for key, config, samples in valid_series:
+            group = self._unit_group(key, config)
+            view = active_views.get(group)
+            if view is None:
+                continue
+            color = config.get("color", "#3B82F6")
+            label = config.get("label", key)
+            x_values = np.asarray([sample[0] for sample in samples], dtype=float)
+            y_values = np.asarray(
+                [
+                    self._plot_value(
+                        group,
+                        config,
+                        self._area_curve_value(key, sample[1]),
+                    )
+                    for sample in samples
+                ],
+                dtype=float,
+            )
+            existing = self._curve_items.get(key)
+            if existing is not None and existing[0] is not view:
+                existing[0].removeItem(existing[1])
+                existing = None
+            if existing is None:
+                curve = pg.PlotDataItem(
+                    pen=pg.mkPen(color, width=1.5 if self.dashboard_style else 2), name=label,
+                    antialias=True, connect="finite",
+                )
+                # Preserve the original line appearance and every recorded sample.
+                curve.setDownsampling(ds=1, auto=False)
+                curve.setClipToView(False)
+                if key in self.AREA_CURVE_METRICS:
+                    curve.setFillLevel(0)
+                    curve.setBrush(pg.mkBrush(color + "40"))
+                view.addItem(curve)
+                self._curve_items[key] = (view, curve)
+            else:
+                curve = existing[1]
+            curve.setData(x_values, y_values)
+            active_item_keys.add(key)
+            old_marker = self._hover_markers.get(key)
+            if old_marker is None or old_marker[0] is not view:
+                if old_marker is not None:
+                    old_marker[0].removeItem(old_marker[1])
+                marker = pg.ScatterPlotItem(
+                    size=7, symbol="o", brush=pg.mkBrush(color),
+                    pen=pg.mkPen("#FFFFFF", width=1),
+                )
+                marker.setZValue(10)
+                view.addItem(marker)
+            else:
+                marker = old_marker[1]
+            marker.hide()
+            self._hover_markers[key] = (view, marker, group, config)
+
+        for key in list(self._curve_items):
+            if key not in active_item_keys:
+                view, curve = self._curve_items.pop(key)
+                view.removeItem(curve)
+        for key in list(self._hover_markers):
+            if key not in active_item_keys:
+                view, marker, _, _ = self._hover_markers.pop(key)
+                view.removeItem(marker)
+        self._data_items = list(self._curve_items.values())
+
+        if self._manual_navigation:
+            self.main_view.setRange(xRange=previous_range[0], yRange=previous_range[1], padding=0)
+        else:
+            plot_item.setXRange(cutoff, anchor, padding=0)
+        self._sync_overlay_views()
+
+    @classmethod
+    def _area_curve_value(cls, key: str, value: float) -> float:
+        if key == "BESS.ChargePower":
+            return -abs(value)
+        if key == "BESS.DischargePower":
+            return abs(value)
+        return value
+
+    def _hide_hover(self):
+        self.v_line.hide()
+        self._hover_tooltip.hide()
+        for _, marker, _, _ in self._hover_markers.values():
+            marker.hide()
+
+    def _flush_pending_history(self):
+        if self._pending_history is not None:
+            data, window = self._pending_history
+            self.update_history(data, window)
+
+    def _on_manual_navigation(self, *_args):
+        self._manual_navigation = True
+        self._interaction_until = time.monotonic() + 0.2
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Leave:
+            self._hide_hover()
+        return super().eventFilter(obj, event)
+
+    def _on_mouse_proxy(self, args):
+        if QApplication.mouseButtons() != Qt.NoButton:
+            self._hide_hover()  # Do not rebuild tooltip HTML during a pan/zoom drag.
+            return
+        self._on_mouse_moved(args[0])
+
+    def _on_mouse_moved(self, pos):
+        plot_item = self.plot.getPlotItem()
+        view_box = plot_item.getViewBox()
+        if not view_box.sceneBoundingRect().contains(pos):
+            self._hide_hover()
             return
 
-        # Calculate time anchor
-        all_recorded_times = []
-        for pts in self.history_data.values():
-            for pt in pts:
-                t = pt.get("time")
-                if t is not None:
-                    try:
-                        all_recorded_times.append(float(t))
-                    except (ValueError, TypeError):
-                        pass
+        mouse_point = view_box.mapSceneToView(pos)
+        cursor_x = mouse_point.x()
+        self.v_line.setPos(cursor_x)
+        self.v_line.show()
 
-        now_sys = time.time()
-        if all_recorded_times:
-            max_data_ts = max(all_recorded_times)
-            if abs(now_sys - max_data_ts) <= self.window_seconds:
-                anchor_ts = max(now_sys, max_data_ts)
-            else:
-                anchor_ts = max_data_ts
+        if self.selected_metrics == {"ALL"}:
+            keys = list(self._visible_metric_samples)
         else:
-            anchor_ts = now_sys
-
-        cutoff_ts = anchor_ts - self.window_seconds
-
-        is_all_mode = (self.selected_metric == "ALL")
-
-        if not is_all_mode:
-            single_cfg = self.METRIC_CONFIG.get(self.selected_metric, {})
-            unit = single_cfg.get("unit", "")
-            pts = self.history_data.get(self.selected_metric, [])
-            vals = []
-            for pt in pts:
-                t = pt.get("time", 0.0)
-                if t < cutoff_ts:
-                    continue
-                v = pt.get("value")
-                if v is not None:
-                    try:
-                        vals.append(float(v))
-                    except (ValueError, TypeError):
-                        pass
-
-            if vals:
-                min_val = min(vals)
-                max_val = max(vals)
-                if min_val == max_val:
-                    nom_min, nom_max = single_cfg.get("nominal", (min_val * 0.9, min_val * 1.1))
-                    min_val = min(min_val, nom_min)
-                    max_val = max(max_val, nom_max)
-                else:
-                    padding = (max_val - min_val) * 0.15
-                    min_val -= padding
-                    max_val += padding
-            else:
-                min_val, max_val = single_cfg.get("nominal", (0.0, 100.0))
-        else:
-            min_val = 0.0
-            max_val = 100.0
-            unit = "%"
-
-        val_range = max(1e-6, max_val - min_val)
-
-        # Draw Grid & Background Grid Lines
-        grid_pen = QPen(QColor("#F1F5F9"), 1, Qt.SolidLine)
-        p.setPen(grid_pen)
-
-        y_ticks = 4 if is_compact else 5
-        font_axis = QFont("Segoe UI", 7 if is_compact else 8)
-        p.setFont(font_axis)
-
-        for i in range(y_ticks):
-            frac = i / (y_ticks - 1)
-            y = bottom - (frac * chart_height)
-            p.setPen(grid_pen)
-            p.drawLine(left, int(y), right, int(y))
-
-            val_at_y = min_val + frac * (max_val - min_val)
-            p.setPen(QColor("#64748B"))
-            if is_all_mode:
-                p.drawText(2 if is_compact else 8, int(y + 4), f"{val_at_y:.0f}%")
-            else:
-                if is_compact and len(unit) > 2:
-                    p.drawText(2, int(y + 4), f"{val_at_y:.0f}")
-                else:
-                    p.drawText(2 if is_compact else 8, int(y + 4), f"{val_at_y:.1f} {unit}")
-
-        # Vertical time grid lines
-        if is_compact:
-            time_intervals = [
-                (-3600, "-60m"),
-                (-1800, "-30m"),
-                (0, "Now"),
-            ]
-        else:
-            time_intervals = [
-                (-3600, "-60m"),
-                (-2700, "-45m"),
-                (-1800, "-30m"),
-                (-900, "-15m"),
-                (0, "Now"),
+            keys = [
+                key for key in self.selected_metrics
+                if key in self._visible_metric_samples
             ]
 
-        for offset_sec, label in time_intervals:
-            frac = (offset_sec + self.window_seconds) / self.window_seconds
-            x = left + (frac * chart_width)
-            p.setPen(grid_pen)
-            p.drawLine(int(x), top, int(x), bottom)
-
-            target_ts = anchor_ts + offset_sec
-            try:
-                clock_str = datetime.fromtimestamp(target_ts).strftime("%H:%M")
-            except Exception:
-                clock_str = ""
-
-            p.setPen(QColor("#64748B"))
-            if is_compact:
-                p.drawText(int(x - 12), bottom + 15, label)
-            else:
-                if clock_str:
-                    p.drawText(int(x - 16), bottom + 16, clock_str)
-                    p.drawText(int(x - 14), bottom + 28, f"({label})")
-                else:
-                    p.drawText(int(x - 14), bottom + 18, label)
-
-        # Baseline
-        p.setPen(QPen(QColor("#CBD5E1"), 1.2))
-        p.drawLine(left, bottom, right, bottom)
-        p.drawLine(left, top, left, bottom)
-
-        # Draw Lines for active metrics
-        for metric_key in active_keys:
-            pts = self.history_data.get(metric_key, [])
-            if not pts:
+        tooltip_lines = []
+        for _, marker, _, _ in self._hover_markers.values():
+            marker.hide()
+        for key in keys:
+            config = self.METRIC_CONFIG.get(key, {})
+            samples = self._visible_metric_samples[key]
+            if not samples:
                 continue
 
-            cfg = self.METRIC_CONFIG.get(metric_key, {
-                "label": metric_key,
-                "unit": "",
-                "color": "#3B82F6",
-                "scale": 1.0,
-                "nominal": (0.0, 100.0),
-            })
-            line_color = QColor(cfg["color"])
-
-            if is_all_mode:
-                m_vals = [float(pt["value"]) for pt in pts if pt.get("value") is not None and pt.get("time", 0.0) >= cutoff_ts]
-                if m_vals:
-                    m_min = min(m_vals)
-                    m_max = max(m_vals)
-                    if m_min == m_max:
-                        nom_min, nom_max = cfg.get("nominal", (m_min * 0.9, m_min * 1.1))
-                        m_min = min(m_min, nom_min)
-                        m_max = max(m_max, nom_max)
-                else:
-                    m_min, m_max = cfg.get("nominal", (0.0, 100.0))
-                m_range = max(1e-6, m_max - m_min)
-
-            curve_points = []
-            for pt in pts:
-                t = pt.get("time", 0.0)
-                v = pt.get("value")
-                if v is None:
-                    continue
-                try:
-                    vf = float(v)
-                except (ValueError, TypeError):
-                    continue
-
-                dt = t - cutoff_ts
-                if dt < 0 or dt > self.window_seconds:
-                    continue
-                frac_x = min(1.0, max(0.0, dt / self.window_seconds))
-
-                if is_all_mode:
-                    tier_low, tier_high = cfg.get("tier", (0.10, 0.90))
-                    norm_y = tier_low + (tier_high - tier_low) * min(1.0, max(0.0, (vf - m_min) / m_range))
-                    frac_y = norm_y
-                else:
-                    frac_y = min(1.0, max(0.0, (vf - min_val) / val_range))
-
-                px = left + frac_x * chart_width
-                py = bottom - frac_y * chart_height
-                curve_points.append(QPoint(int(px), int(py)))
-
-            if len(curve_points) >= 2:
-                p.setPen(QPen(line_color, 2.0 if is_compact else 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-                for i in range(len(curve_points) - 1):
-                    p.drawLine(curve_points[i], curve_points[i + 1])
-
-                last_pt = curve_points[-1]
-                p.setBrush(QBrush(line_color))
-                p.drawEllipse(last_pt, 3, 3)
-                p.setBrush(QBrush(QColor("#FFFFFF")))
-                p.drawEllipse(last_pt, 1, 1)
-            elif len(curve_points) == 1:
-                p.setBrush(QBrush(line_color))
-                p.drawEllipse(curve_points[0], 4, 4)
-
-        # Draw interactive hover crosshair and floating tooltip card
-        if self.hover_active and self.hover_pos and left <= self.hover_pos.x() <= right:
-            hx = self.hover_pos.x()
-            frac_x = max(0.0, min(1.0, (hx - left) / chart_width))
-            target_t = cutoff_ts + frac_x * self.window_seconds
-
-            try:
-                clock_str = datetime.fromtimestamp(target_t).strftime("%H:%M:%S")
-            except Exception:
-                clock_str = "--:--:--"
-
-            offset_sec = int(target_t - anchor_ts)
-            if abs(offset_sec) < 5:
-                rel_str = "Now"
+            # Mark the drawn curve at the cursor time, not the nearest sample
+            # (which can be visibly far away when sampling is sparse).
+            if cursor_x < samples[0][0] or cursor_x > samples[-1][0]:
+                continue
+            index = bisect_left(samples, (cursor_x, -math.inf))
+            if index == 0 or samples[index][0] == cursor_x:
+                value = self._area_curve_value(key, samples[index][1])
             else:
-                rel_str = f"{offset_sec // 60}m {abs(offset_sec) % 60:02d}s"
+                left_t, left_v = samples[index - 1]
+                right_t, right_v = samples[index]
+                fraction = (cursor_x - left_t) / (right_t - left_t)
+                left_v = self._area_curve_value(key, left_v)
+                right_v = self._area_curve_value(key, right_v)
+                value = left_v + fraction * (right_v - left_v)
+            timestamp = cursor_x
+            marker_data = self._hover_markers.get(key)
+            if marker_data is not None:
+                _, marker, group, marker_config = marker_data
+                marker_value = self._plot_value(
+                    group,
+                    marker_config,
+                    self._area_curve_value(key, value),
+                )
+                marker.setData([timestamp], [marker_value])
+                marker.show()
+            label = config.get("label", key)
+            unit = config.get("unit", "")
+            value = self._area_curve_value(key, value)
+            if len(self.selected_metrics) > 1 or self.selected_metrics == {"ALL"}:
+                if unit == "kV":
+                    value *= 1000.0
+                    unit = "V"
+            color = config.get("color", "#3B82F6")
+            tooltip_lines.append(
+                f'<span style="color:{color}; font-weight:bold;">●</span> '
+                f'<span style="color:#0F172A;">{label}: '
+                f'{value:.2f} {unit}</span>'
+            )
 
-            # 1. Vertical dashed crosshair line
-            crosshair_pen = QPen(QColor(100, 116, 139, 180), 1.2, Qt.DashLine)
-            p.setPen(crosshair_pen)
-            p.drawLine(hx, top, hx, bottom)
+        if not tooltip_lines:
+            self._hover_tooltip.hide()
+            return
 
-            # 2. Timestamp badge at bottom axis
-            badge_w = 64
-            badge_h = 16
-            badge_x = max(left, min(right - badge_w, hx - badge_w // 2))
-            p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(QColor("#0F172A")))
-            p.drawRoundedRect(badge_x, bottom + 2, badge_w, badge_h, 3, 3)
-            p.setPen(QColor("#38BDF8"))
-            p.setFont(QFont("Segoe UI", 7, QFont.Bold))
-            p.drawText(QRect(badge_x, bottom + 2, badge_w, badge_h), Qt.AlignCenter, clock_str)
+        try:
+            time_text = datetime.fromtimestamp(
+                cursor_x, tz=IST
+            ).strftime("%d-%m-%Y %H:%M:%S")
+        except (ValueError, TypeError, OSError, OverflowError):
+            time_text = "Unknown time"
+        tooltip_text = (
+            '<span style="color:#0F172A; font-weight:bold;">'
+            f"Time: {time_text} IST</span><br>"
+            + "<br>".join(tooltip_lines)
+        )
+        self._hover_tooltip.setTextFormat(Qt.RichText)
+        self._hover_tooltip.setText(tooltip_text)
+        self._hover_tooltip.adjustSize()
 
-            # 3. Find closest data points and draw glowing highlight dots on curves
-            tooltip_items = []
-            for metric_key in active_keys:
-                pts = self.history_data.get(metric_key, [])
-                if not pts:
-                    continue
-                cfg = self.METRIC_CONFIG.get(metric_key, {
-                    "label": metric_key,
-                    "unit": "",
-                    "color": "#3B82F6",
-                    "scale": 1.0,
-                    "nominal": (0.0, 100.0),
-                })
-                line_color = QColor(cfg["color"])
-
-                # Find closest data point to target_t within cutoff
-                best_pt = None
-                min_dt = float("inf")
-                for pt in pts:
-                    t = pt.get("time")
-                    if t is None:
-                        continue
-                    try:
-                        tf = float(t)
-                    except (ValueError, TypeError):
-                        continue
-                    if tf < cutoff_ts:
-                        continue
-                    dt_diff = abs(tf - target_t)
-                    if dt_diff < min_dt:
-                        min_dt = dt_diff
-                        best_pt = pt
-
-                if best_pt is not None and best_pt.get("value") is not None:
-                    try:
-                        vf = float(best_pt["value"])
-                        pt_t = float(best_pt["time"])
-
-                        dt_pt = pt_t - cutoff_ts
-                        pt_frac_x = min(1.0, max(0.0, dt_pt / self.window_seconds))
-                        pt_px = left + pt_frac_x * chart_width
-
-                        if is_all_mode:
-                            tier_low, tier_high = cfg.get("tier", (0.10, 0.90))
-                            norm_y = tier_low + (tier_high - tier_low) * min(1.0, max(0.0, (vf - m_min) / m_range))
-                            pt_py = bottom - norm_y * chart_height
-                        else:
-                            pt_py = bottom - min(1.0, max(0.0, (vf - min_val) / val_range)) * chart_height
-
-                        # Draw highlight dot on curve
-                        p.setPen(QPen(QColor("#FFFFFF"), 1.8))
-                        p.setBrush(QBrush(line_color))
-                        p.drawEllipse(QPoint(int(pt_px), int(pt_py)), 5, 5)
-
-                        tooltip_items.append((cfg["label"], f"{vf:.2f} {cfg['unit']}", line_color))
-                    except (ValueError, TypeError):
-                        pass
-
-            # 4. Floating tooltip card
-            if tooltip_items:
-                card_w = 175 if not is_compact else 155
-                card_h = 24 + len(tooltip_items) * 16 + 6
-
-                # Position card dynamically to avoid clipping edges
-                if hx + 15 + card_w <= right:
-                    card_x = hx + 15
-                else:
-                    card_x = max(left + 5, hx - card_w - 15)
-
-                card_y = max(top + 5, min(bottom - card_h - 5, self.hover_pos.y() - 15))
-
-                # Background card
-                p.setPen(QPen(QColor("#334155"), 1.2))
-                p.setBrush(QBrush(QColor(15, 23, 42, 235)))
-                p.drawRoundedRect(card_x, card_y, card_w, card_h, 6, 6)
-
-                # Card Header with clock and relative delta
-                p.setFont(QFont("Segoe UI", 7.5 if not is_compact else 7, QFont.Bold))
-                p.setPen(QColor("#38BDF8"))
-                p.drawText(card_x + 8, card_y + 14, f"⏱ {clock_str}  ({rel_str})")
-                p.setPen(QPen(QColor("#334155"), 0.8))
-                p.drawLine(card_x + 6, card_y + 18, card_x + card_w - 6, card_y + 18)
-
-                # Metric rows
-                row_y = card_y + 31
-                for lbl, val_str, col in tooltip_items:
-                    # Color bullet
-                    p.setPen(col)
-                    p.setFont(QFont("Segoe UI", 8, QFont.Bold))
-                    p.drawText(card_x + 8, row_y, "●")
-
-                    # Label
-                    p.setFont(QFont("Segoe UI", 7 if not is_compact else 6.5, QFont.Normal))
-                    p.setPen(QColor("#CBD5E1"))
-                    p.drawText(card_x + 18, row_y, lbl[:17])
-
-                    # Value
-                    p.setFont(QFont("Segoe UI", 7 if not is_compact else 6.5, QFont.Bold))
-                    p.setPen(QColor("#FFFFFF"))
-                    p.drawText(QRect(card_x + 20, row_y - 10, card_w - 28, 14), Qt.AlignRight | Qt.AlignVCenter, val_str)
-
-                    row_y += 16
-
+        cursor_pos = self.plot.mapFromScene(pos)
+        tooltip_x = cursor_pos.x() + 14
+        tooltip_y = cursor_pos.y() + 14
+        if tooltip_x + self._hover_tooltip.width() > self.plot.width():
+            tooltip_x = cursor_pos.x() - self._hover_tooltip.width() - 14
+        if tooltip_y + self._hover_tooltip.height() > self.plot.height():
+            tooltip_y = cursor_pos.y() - self._hover_tooltip.height() - 14
+        self._hover_tooltip.move(max(0, tooltip_x), max(0, tooltip_y))
+        self._hover_tooltip.raise_()
+        self._hover_tooltip.show()
 
 class TimeSeriesWidget(QFrame):
     """
@@ -544,7 +863,12 @@ class TimeSeriesWidget(QFrame):
 
     METRIC_FILTERS = [
         ("All Trends (Overview)", "ALL"),
-        ("Load Demand (kW)", "Network.LoadPower"),
+        ("Solar Generation (kW)", Tags.SOLAR.PV_POWER),
+        ("Load (kW)", "Network.LoadPower"),
+        ("BESS Charge (kW)", "BESS.ChargePower"),
+        ("BESS Discharge (kW)", "BESS.DischargePower"),
+        ("Grid Import (kW)", "Grid.ImportPower"),
+        ("Grid Export (kW)", "Grid.ExportPower"),
         ("Bus 433 A Voltage (V)", "Grid.BUS_A_Voltage"),
         ("Bus 433 B Voltage (V)", "Grid.BUS_B_Voltage"),
         ("Bus 433 C Voltage (V)", "Grid.BUS_C_Voltage"),
@@ -557,13 +881,31 @@ class TimeSeriesWidget(QFrame):
         ("Grid Frequency (Hz)", "Grid.Frequency"),
     ]
 
-    def __init__(self, simulator=None, parent=None, compact: bool = False):
+    DASHBOARD_LEGEND = [
+        (Tags.SOLAR.PV_POWER, "Solar", "#F97316"),
+        ("Network.LoadPower", "Load", "#6366F1"),
+        ("BESS.ChargePower", "BESS Chg", "#10B981"),
+        ("BESS.DischargePower", "BESS Dis", "#EC4899"),
+        ("Grid.ImportPower", "Grid Imp", "#8B5CF6"),
+        ("Grid.ExportPower", "Grid Exp", "#06B6D4"),
+        ("Grid.BUS_A_Voltage", "Bus 433 A", "#3B82F6"),
+        ("Grid.BUS_B_Voltage", "Bus 433 B", "#A855F7"),
+        ("Grid.BUS_C_Voltage", "Bus 433 C", "#F43F5E"),
+        ("Grid.Voltage", "Grid 33kV", "#1D4ED8"),
+        ("PCS.AC_Voltage", "PCS Bus", "#0D9488"),
+        ("SOC", "Battery SOC", "#15803D"),
+        ("Grid.Frequency", "Freq", "#64748B"),
+    ]
+
+    def __init__(self, simulator=None, parent=None, compact: bool = False, dashboard: bool = False):
         super().__init__(parent)
         self.simulator = simulator
-        self.compact = compact
+        self.compact = compact and not dashboard
+        self.dashboard = dashboard
         self.fullscreen_dialog = None
         self._fullscreen_parent = None
         self._fullscreen_geometry = None
+        self._syncing_metric_controls = False
 
         self.setStyleSheet("""
             TimeSeriesWidget {
@@ -575,7 +917,111 @@ class TimeSeriesWidget(QFrame):
 
         layout = QVBoxLayout(self)
 
-        if self.compact:
+        if self.dashboard:
+            layout.setContentsMargins(10, 6, 10, 6)
+            layout.setSpacing(4)
+
+            header_row = QHBoxLayout()
+            header_row.setSpacing(8)
+
+            title = QLabel("1-HR TRENDS")
+            title.setStyleSheet(
+                "color: #0F172A; font-size: 11px; font-weight: 800; "
+                "font-family: 'Segoe UI', sans-serif; border: none;"
+            )
+            header_row.addWidget(title)
+
+            window_chip = QLabel("Last 1 Hour")
+            window_chip.setStyleSheet("""
+                QLabel {
+                    background: #F1F5F9;
+                    color: #475569;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 10px;
+                    font-size: 9px;
+                    font-weight: 700;
+                    padding: 2px 8px;
+                }
+            """)
+            header_row.addWidget(window_chip)
+            header_row.addStretch()
+
+            self.metric_combo = CheckableComboBox()
+            self.metric_combo.setFixedHeight(22)
+            self.metric_combo.setMinimumWidth(190)
+            self.metric_combo.setStyleSheet("""
+                QComboBox {
+                    background: #F8FAFC;
+                    color: #1E293B;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    font-weight: 600;
+                    padding: 1px 6px;
+                }
+                QComboBox QAbstractItemView {
+                    background: #FFFFFF;
+                    color: #1E293B;
+                    selection-background-color: #2563EB;
+                    selection-color: #FFFFFF;
+                    font-size: 10px;
+                }
+            """)
+            for label, key in self.METRIC_FILTERS:
+                self.metric_combo.add_check_item(label, key)
+            self.metric_combo.set_checked_data({"ALL"})
+            self.metric_combo.selectionChanged.connect(self._on_combo_changed)
+            header_row.addWidget(self.metric_combo)
+
+            self.fullscreen_button = QPushButton("⛶")
+            self.fullscreen_button.setFixedSize(22, 22)
+            self.fullscreen_button.setCursor(Qt.PointingHandCursor)
+            self.fullscreen_button.setToolTip("Fullscreen")
+            self.fullscreen_button.setStyleSheet("""
+                QPushButton {
+                    background: #F1F5F9;
+                    color: #475569;
+                    border: 1px solid #CBD5E1;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #E2E8F0;
+                    color: #2563EB;
+                }
+            """)
+            self.fullscreen_button.clicked.connect(self._toggle_fullscreen)
+            header_row.addWidget(self.fullscreen_button)
+            layout.addLayout(header_row)
+
+            self.canvas = TimeSeriesChartCanvas(self)
+            self.canvas.dashboard_style = True
+            layout.addWidget(self.canvas, 1)
+
+            legend_row = QHBoxLayout()
+            legend_row.setSpacing(6)
+            self.legend_labels = {}
+            for key, name, color in self.DASHBOARD_LEGEND:
+                item_box = QHBoxLayout()
+                item_box.setSpacing(3)
+                swatch = QLabel()
+                swatch.setFixedSize(9, 9)
+                swatch.setStyleSheet(
+                    f"background: {color}; border: 1px solid {color}; border-radius: 1px;"
+                )
+                lbl = QLabel(name)
+                lbl.setStyleSheet(
+                    "color: #64748B; font-size: 8.5px; font-weight: 600; border: none;"
+                )
+                item_box.addWidget(swatch)
+                item_box.addWidget(lbl)
+                legend_row.addLayout(item_box)
+                self.legend_labels[key] = (name, lbl)
+            legend_row.addStretch()
+            layout.addLayout(legend_row)
+
+        elif self.compact:
             layout.setContentsMargins(6, 4, 6, 4)
             layout.setSpacing(4)
 
@@ -588,7 +1034,7 @@ class TimeSeriesWidget(QFrame):
             header_row.addWidget(title)
 
             # Metric selector dropdown
-            self.metric_combo = QComboBox()
+            self.metric_combo = CheckableComboBox()
             self.metric_combo.setFixedHeight(22)
             self.metric_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.metric_combo.setStyleSheet("""
@@ -610,8 +1056,9 @@ class TimeSeriesWidget(QFrame):
                 }
             """)
             for label, key in self.METRIC_FILTERS:
-                self.metric_combo.addItem(label, key)
-            self.metric_combo.currentIndexChanged.connect(self._on_combo_changed)
+                self.metric_combo.add_check_item(label, key)
+            self.metric_combo.set_checked_data({"ALL"})
+            self.metric_combo.selectionChanged.connect(self._on_combo_changed)
             header_row.addWidget(self.metric_combo)
 
             # Fullscreen button
@@ -704,12 +1151,50 @@ class TimeSeriesWidget(QFrame):
 
             layout.addLayout(header_row)
 
-            # Filter pills row
-            filter_row = QHBoxLayout()
+            # Filter pills in sleek horizontal scroll area (never forces parent window wider than screen)
+            self.filter_scroll = QScrollArea()
+            self.filter_scroll.setFixedHeight(34)
+            self.filter_scroll.setWidgetResizable(True)
+            self.filter_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.filter_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.filter_scroll.setFrameShape(QFrame.NoFrame)
+            self.filter_scroll.setStyleSheet("""
+                QScrollArea {
+                    background: transparent;
+                    border: none;
+                }
+                QScrollArea > QWidget > QWidget {
+                    background: transparent;
+                }
+                QScrollBar:horizontal {
+                    height: 3px;
+                    background: #F1F5F9;
+                    border-radius: 1px;
+                }
+                QScrollBar::handle:horizontal {
+                    background: #CBD5E1;
+                    border-radius: 1px;
+                    min-width: 24px;
+                }
+                QScrollBar::handle:horizontal:hover {
+                    background: #94A3B8;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                    width: 0px;
+                }
+            """)
+            if self.filter_scroll.viewport():
+                self.filter_scroll.viewport().setStyleSheet("background: transparent;")
+
+            filter_container = QWidget()
+            filter_container.setStyleSheet("background: transparent;")
+            filter_row = QHBoxLayout(filter_container)
+            filter_row.setContentsMargins(0, 0, 0, 0)
             filter_row.setSpacing(5)
 
             self.button_group = QButtonGroup(self)
-            self.button_group.setExclusive(True)
+            self.button_group.setExclusive(False)
+            self.metric_buttons = {}
 
             for idx, (label_text, metric_key) in enumerate(self.METRIC_FILTERS):
                 btn = QPushButton(label_text)
@@ -737,46 +1222,142 @@ class TimeSeriesWidget(QFrame):
                         font-weight: 700;
                     }
                 """)
-                btn.clicked.connect(lambda checked, k=metric_key: self.on_metric_selected(k))
+                btn.toggled.connect(
+                    lambda checked, key=metric_key:
+                    self._on_filter_button_toggled(key, checked)
+                )
                 self.button_group.addButton(btn, idx)
+                self.metric_buttons[metric_key] = btn
                 filter_row.addWidget(btn)
 
             filter_row.addStretch()
-            layout.addLayout(filter_row)
+            self.filter_scroll.setWidget(filter_container)
+
+            # Smooth mouse wheel horizontal scrolling
+            def _filter_wheel(event):
+                delta = event.angleDelta().y() or event.angleDelta().x()
+                sb = self.filter_scroll.horizontalScrollBar()
+                sb.setValue(sb.value() - int(delta / 2))
+                event.accept()
+            self.filter_scroll.wheelEvent = _filter_wheel
+
+            layout.addWidget(self.filter_scroll)
 
             # Chart Canvas
             self.canvas = TimeSeriesChartCanvas(self)
             layout.addWidget(self.canvas, 1)
 
-            # Bottom Legend Row
-            self.legend_row = QHBoxLayout()
-            self.legend_row.setSpacing(14)
+            # Bottom Legend Row in sleek horizontal scroll area
+            self.legend_scroll = QScrollArea()
+            self.legend_scroll.setFixedHeight(24)
+            self.legend_scroll.setWidgetResizable(True)
+            self.legend_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.legend_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.legend_scroll.setFrameShape(QFrame.NoFrame)
+            self.legend_scroll.setStyleSheet("""
+                QScrollArea {
+                    background: transparent;
+                    border: none;
+                }
+                QScrollArea > QWidget > QWidget {
+                    background: transparent;
+                }
+                QScrollBar:horizontal {
+                    height: 2px;
+                    background: #F1F5F9;
+                    border-radius: 1px;
+                }
+                QScrollBar::handle:horizontal {
+                    background: #CBD5E1;
+                    border-radius: 1px;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                    width: 0px;
+                }
+            """)
+            if self.legend_scroll.viewport():
+                self.legend_scroll.viewport().setStyleSheet("background: transparent;")
+
+            legend_container = QWidget()
+            legend_container.setStyleSheet("background: transparent;")
+            self.legend_row = QHBoxLayout(legend_container)
+            self.legend_row.setContentsMargins(0, 0, 0, 0)
+            self.legend_row.setSpacing(10)
             self.legend_labels = {}
 
-            metrics_for_legend = [
-                ("SOC", "SOC (%)", "#16A34A"),
-                ("Grid.Voltage", "Grid (kV)", "#2563EB"),
-                ("Network.LoadPower", "Load (kW)", "#0D9488"),
-                ("Grid.BUS_A_Voltage", "Bus A (V)", "#3B82F6"),
-                ("Network.LoadVoltage", "Load Bus (V)", "#9333EA"),
-                ("Battery.Power", "Batt Power (kW)", "#EA580C"),
-                ("Grid.Frequency", "Freq (Hz)", "#0284C7"),
-            ]
-
-            for key, name, color in metrics_for_legend:
+            for key, name, color in self.DASHBOARD_LEGEND:
                 item_box = QHBoxLayout()
-                item_box.setSpacing(4)
-                dot = QLabel("●")
-                dot.setStyleSheet(f"color: {color}; font-size: 12px; border: none;")
+                item_box.setSpacing(3)
+                swatch = QLabel()
+                swatch.setFixedSize(8, 8)
+                swatch.setStyleSheet(
+                    f"background: {color}; border: 1px solid {color}; border-radius: 1px;"
+                )
                 lbl = QLabel(f"{name}: --")
-                lbl.setStyleSheet("color: #475569; font-size: 9.5px; font-weight: 600; border: none;")
-                item_box.addWidget(dot)
+                lbl.setStyleSheet("color: #475569; font-size: 8.5px; font-weight: 600; border: none;")
+                item_box.addWidget(swatch)
                 item_box.addWidget(lbl)
                 self.legend_row.addLayout(item_box)
                 self.legend_labels[key] = (name, lbl)
 
             self.legend_row.addStretch()
-            layout.addLayout(self.legend_row)
+            self.legend_scroll.setWidget(legend_container)
+            layout.addWidget(self.legend_scroll)
+
+        self._frozen = False
+        self._reset_after_ts = None
+        self.history_button = QPushButton("15 min mode")
+        self.history_button.setCheckable(True)
+        self.history_button.setCursor(Qt.PointingHandCursor)
+        self.history_button.setMinimumWidth(115)
+        self.history_button.setFixedHeight(24)
+        self.history_button.setStyleSheet("""
+            QPushButton {
+                background: #EFF6FF;
+                color: #1D4ED8;
+                border: 1px solid #93C5FD;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #DBEAFE;
+                border-color: #2563EB;
+            }
+            QPushButton:checked {
+                background: #1D4ED8;
+                color: #FFFFFF;
+                border-color: #1D4ED8;
+            }
+        """)
+        self.history_button.setToolTip(
+            "Freeze the last 15 minutes of recorded data. Click again to resume live trends.")
+        self.history_button.toggled.connect(self._set_history_mode)
+        # Place the mode next to the one-hour label, before metric selection.
+        header_row.insertWidget(2 if self.dashboard else 1, self.history_button)
+        self.reset_button = QPushButton("Reset")
+        self.reset_button.setFixedHeight(24)
+        self.reset_button.setCursor(Qt.PointingHandCursor)
+        self.reset_button.setStyleSheet("QPushButton {background: #FEF2F2; color: #B91C1C; border: 1px solid #FCA5A5; border-radius: 4px; padding: 2px 10px; font-weight: 600;} QPushButton:hover {background: #FEE2E2;}")
+        self.reset_button.setToolTip("Clear plotted history and start showing only new samples")
+        self.reset_button.clicked.connect(self.reset_graph)
+        header_row.insertWidget(3 if self.dashboard else 2, self.reset_button)
+        self.navigation_combo = QComboBox()
+        self.navigation_combo.addItems(["Zoom Area", "Pan"])
+        self.navigation_combo.setFixedHeight(24)
+        self.navigation_combo.setStyleSheet("QComboBox {background: #F8FAFC; color: #172B4D; border: 1px solid #CBD5E1; border-radius: 4px; padding: 2px 6px;} QComboBox QAbstractItemView {background: #FFFFFF; color: #172B4D; selection-background-color: #DBEAFE; selection-color: #172B4D;}")
+        self.navigation_combo.setToolTip("Zoom Area: left-drag a rectangle to zoom. Pan: drag to move the chart.")
+        self.navigation_combo.currentTextChanged.connect(self._set_navigation_mode)
+        header_row.insertWidget(4 if self.dashboard else 3, self.navigation_combo)
+        self.fit_button = QPushButton("Reset Zoom")
+        self.fit_button.setFixedHeight(24)
+        self.fit_button.setCursor(Qt.PointingHandCursor)
+        self.fit_button.setStyleSheet("QPushButton {background: #EFF6FF; color: #1D4ED8; border: 1px solid #93C5FD; border-radius: 4px; padding: 2px 10px; font-weight: 600;} QPushButton:hover {background: #DBEAFE;}")
+        self.fit_button.setToolTip("Restore the full time window without clearing any data")
+        self.fit_button.clicked.connect(self._fit_graph_view)
+        header_row.insertWidget(header_row.indexOf(self.fullscreen_button), self.fit_button)
+        self._set_navigation_mode("Zoom Area")
 
         # Initial load & auto-update timer
         self.update_from_simulator()
@@ -784,106 +1365,151 @@ class TimeSeriesWidget(QFrame):
         self.auto_timer.timeout.connect(self.update_from_simulator)
         self.auto_timer.start(1000)
 
-    def _on_combo_changed(self, index: int):
-        metric_key = self.metric_combo.itemData(index)
-        self.on_metric_selected(metric_key)
+    def _set_navigation_mode(self, mode):
+        """Choose rectangle selection or chart dragging explicitly."""
+        self.canvas.main_view.setMouseMode(
+            pg.ViewBox.RectMode if mode == "Zoom Area" else pg.ViewBox.PanMode)
+        self.canvas.plot.setToolTip(
+            "Left-drag a rectangle to zoom into that area; mouse wheel also zooms."
+            if mode == "Zoom Area" else "Left-drag to pan; mouse wheel zooms.")
 
-    def on_metric_selected(self, metric_key: str):
-        self.canvas.set_selected_metric(metric_key)
+    def _fit_graph_view(self):
+        """Restore automatic bounds without deleting plotted history."""
+        self.canvas._manual_navigation = False
+        self.canvas._interaction_until = 0.0
+        self.canvas._pending_history = None
+        self.canvas._interaction_timer.stop()
+        self.canvas.main_view.rbScaleBox.hide()
+        self.canvas.update_history(self.canvas.history_data, self.canvas.window_seconds)
+
+    def reset_graph(self):
+        """Clear this graph without deleting shared database or disk history."""
+        times = [float(point["time"]) for points in self.canvas.history_data.values()
+                 for point in points if isinstance(point, dict)
+                 and isinstance(point.get("time"), (int, float))
+                 and math.isfinite(point["time"])]
+        self._reset_after_ts = max([time.time()] + times)
+        self.canvas._manual_navigation = False
+        self.canvas._interaction_until = 0.0
+        self.canvas._pending_history = None
+        self.canvas._interaction_timer.stop()
+        self.canvas._hide_hover()
+        self.canvas.update_history({}, self.canvas.window_seconds)
+        for name, label in getattr(self, "legend_labels", {}).values():
+            label.setText(f"{name}: --")
+        if hasattr(self, "compact_status"):
+            self.compact_status.setText("Graph reset — waiting for new samples")
+        if hasattr(self, "stats_badge"):
+            self.stats_badge.setText("Graph reset — waiting for new samples")
+        self._last_poll_time = 0
+
+    def _set_history_mode(self, frozen):
+        """Freeze the currently recorded trailing fifteen minutes until toggled off."""
+        self._frozen = frozen
+        self.canvas._manual_navigation = False
+        self.canvas._interaction_until = 0.0
+        self.canvas._pending_history = None
+        self.canvas._interaction_timer.stop()
+        if frozen:
+            self.canvas.history_data = copy.deepcopy(self.canvas.history_data)
+            times = [float(p["time"]) for pts in self.canvas.history_data.values()
+                     for p in pts if p.get("time") is not None]
+            self.canvas.anchor_ts = max(times) if times else time.time()
+            self.canvas.window_seconds = 900.0
+            self.auto_timer.stop()
+            if hasattr(self, "stats_badge"):
+                self.stats_badge.setText("● HISTORY SNAPSHOT: Last 15 min | Paused")
+            if hasattr(self, "compact_status"):
+                self.compact_status.setText("● Last 15 min | Paused")
+        else:
+            self.canvas.anchor_ts = None
+            self._last_poll_time = 0
+            self.update_from_simulator()
+            self.auto_timer.start(1000)
+        self.history_button.setText("15 min mode (paused)" if frozen else "15 min mode")
+        self.canvas.update_history(self.canvas.history_data, self.canvas.window_seconds)
+
+    def _on_combo_changed(self, selected_metrics):
+        self.on_metric_selected(selected_metrics)
+
+    def on_metric_selected(self, metric_keys):
+        self.canvas.set_selected_metric(metric_keys)
+        selected = set(self.canvas.selected_metrics)
+        self._syncing_metric_controls = True
+        try:
+            if hasattr(self, "metric_combo"):
+                self.metric_combo.set_checked_data(selected)
+            for key, button in getattr(self, "metric_buttons", {}).items():
+                button.setChecked(key in selected)
+        finally:
+            self._syncing_metric_controls = False
+
+    def _on_filter_button_toggled(self, metric_key: str, checked: bool):
+        if self._syncing_metric_controls:
+            return
+
+        self._syncing_metric_controls = True
+        try:
+            if metric_key == "ALL" and checked:
+                selected = {"ALL"}
+            else:
+                if checked:
+                    self.metric_buttons["ALL"].setChecked(False)
+                selected = {
+                    key for key, button in self.metric_buttons.items()
+                    if key != "ALL" and button.isChecked()
+                }
+                if not selected:
+                    selected = {"ALL"}
+            for key, button in self.metric_buttons.items():
+                button.setChecked(key in selected)
+        finally:
+            self._syncing_metric_controls = False
+        self.on_metric_selected(selected)
 
     def _toggle_fullscreen(self):
-        if self.fullscreen_dialog is not None:
-            self.fullscreen_dialog.close()
+        # Open dedicated full-screen dialog without reparenting (avoids black screen & keeps tabs intact)
+        if hasattr(self, "fullscreen_dialog") and self.fullscreen_dialog is not None:
+            try:
+                self.fullscreen_dialog.close()
+            except Exception:
+                pass
+            self.fullscreen_dialog = None
             return
 
-        parent = self.parentWidget()
-        if parent is None:
-            return
-
-        self._fullscreen_parent = parent
-        self._fullscreen_geometry = self.geometry()
-
-        dialog = QDialog(parent.window())
-        dialog.setWindowTitle("1-Hour Rolling Time Series Trends")
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.addWidget(self)
-        dialog.finished.connect(
-            lambda _result, active_dialog=dialog: self._restore_from_fullscreen(active_dialog)
+        current_metrics = set(self.canvas.selected_metrics)
+        dialog = TimeSeriesFullscreenDialog(
+            simulator=self.simulator,
+            selected_metric=current_metrics,
+            parent=self.window(),
         )
-
+        target = dialog.chart_widget
+        target._reset_after_ts = self._reset_after_ts
+        target.canvas.update_history(copy.deepcopy(self.canvas.history_data), self.canvas.window_seconds)
+        if self._frozen:
+            target.canvas.history_data = copy.deepcopy(self.canvas.history_data)
+            target.history_button.setChecked(True)
+            target.canvas.anchor_ts = self.canvas.anchor_ts
+            target.canvas.update_history(target.canvas.history_data, 900.0)
         self.fullscreen_dialog = dialog
-        self.fullscreen_button.setText("✕")
-        self.fullscreen_button.setToolTip("Exit fullscreen")
+
+        def _on_closed(_result=None):
+            self.fullscreen_dialog = None
+            try:
+                if hasattr(dialog, "chart_widget") and hasattr(dialog.chart_widget, "canvas"):
+                    if dialog.chart_widget._reset_after_ts != self._reset_after_ts:
+                        self._reset_after_ts = dialog.chart_widget._reset_after_ts
+                        self.canvas.history_data = copy.deepcopy(dialog.chart_widget.canvas.history_data)
+                        self.canvas._manual_navigation = False
+                    metrics = set(dialog.chart_widget.canvas.selected_metrics)
+                    self.on_metric_selected(metrics)
+                    if hasattr(self, "metric_combo"):
+                        self.metric_combo.set_checked_data(metrics)
+            except Exception:
+                pass
+
+        dialog.finished.connect(_on_closed)
         dialog.showFullScreen()
-
-    def _restore_from_fullscreen(self, dialog):
-        if dialog is not getattr(self, "fullscreen_dialog", None):
-            return
-
-        parent = self._fullscreen_parent
-        geometry = self._fullscreen_geometry
-        self.fullscreen_dialog = None
-        self._fullscreen_parent = None
-        self._fullscreen_geometry = None
-
-        if parent is not None and geometry is not None:
-            self.setParent(parent)
-            self.setGeometry(geometry)
-            self.fullscreen_button.setText("⛶")
-            self.fullscreen_button.setToolTip("Fullscreen")
-            self.show()
-
-        dialog.deleteLater()
-
-    def _generate_baseline_history(self):
-        """
-        Generate 1 hour (3600 seconds) of realistic baseline time-series data
-        covering all mapped voltage profile buses and plant load.
-        """
-        now_ts = time.time()
-        count = 120  # 1 sample every 30 seconds across 3600s
-        history = {
-            "SOC": [],
-            "Grid.Voltage": [],
-            "Grid.BUS_A_Voltage": [],
-            "Grid.BUS_B_Voltage": [],
-            "Grid.BUS_C_Voltage": [],
-            "Network.LoadVoltage": [],
-            "PCS.AC_Voltage": [],
-            "Network.LoadPower": [],
-            "Battery.Power": [],
-            "PCS.ActivePowerOutput": [],
-            "Grid.Frequency": [],
-        }
-        for i in range(count):
-            t = (now_ts - 3600) + (i * 30.0)
-            frac = i / count
-            iso_time = datetime.fromtimestamp(t).isoformat()
-
-            soc_val = round(50.0 + (1.68 * frac), 2)
-            grid_v = round(33.0 + 0.15 * math.sin(i * 0.1), 2)
-            bus_a = round(433.0 + 2.1 * math.sin(i * 0.12), 1)
-            bus_b = round(433.0 + 1.8 * math.cos(i * 0.14), 1)
-            bus_c = round(433.0 + 2.3 * math.sin(i * 0.16), 1)
-            load_v = round(415.0 + 2.5 * math.cos(i * 0.15), 1)
-            pcs_v = round(430.0 + 2.0 * math.sin(i * 0.11), 1)
-            load_p = round(2450.0 + 120.0 * math.sin(i * 0.09), 1)
-            freq = round(50.0 + 0.04 * math.sin(i * 0.2), 3)
-            p_power = round(1809.0 + 15.0 * math.sin(i * 0.08), 1)
-
-            history["SOC"].append({"time": t, "timestamp": iso_time, "value": soc_val})
-            history["Grid.Voltage"].append({"time": t, "timestamp": iso_time, "value": grid_v})
-            history["Grid.BUS_A_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_a})
-            history["Grid.BUS_B_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_b})
-            history["Grid.BUS_C_Voltage"].append({"time": t, "timestamp": iso_time, "value": bus_c})
-            history["Network.LoadVoltage"].append({"time": t, "timestamp": iso_time, "value": load_v})
-            history["PCS.AC_Voltage"].append({"time": t, "timestamp": iso_time, "value": pcs_v})
-            history["Network.LoadPower"].append({"time": t, "timestamp": iso_time, "value": load_p})
-            history["Battery.Power"].append({"time": t, "timestamp": iso_time, "value": p_power})
-            history["PCS.ActivePowerOutput"].append({"time": t, "timestamp": iso_time, "value": p_power})
-            history["Grid.Frequency"].append({"time": t, "timestamp": iso_time, "value": freq})
-        return history
 
     def _get_latest_val(self, history_data, key, unit=""):
         pts = history_data.get(key, [])
@@ -901,6 +1527,14 @@ class TimeSeriesWidget(QFrame):
         Pull latest 1-hour time-series data from simulator or history.json
         and update the chart canvas and badges.
         """
+        # Throttle to prevent duplicate polling jitter (from both auto_timer and parent voltage update)
+        if self._frozen:
+            return
+        now = time.time()
+        if hasattr(self, "_last_poll_time") and (now - self._last_poll_time) < 0.4:
+            return
+        self._last_poll_time = now
+
         sim = simulator or self.simulator
         history_data = {}
 
@@ -910,10 +1544,10 @@ class TimeSeriesWidget(QFrame):
                 all_devices = sim.plant_database.get_all_history(last_seconds=3600.0)
                 ppc_data = all_devices.get("PPC", {})
                 if ppc_data:
-                    history_data = ppc_data
+                    history_data = copy.deepcopy(ppc_data)
                 else:
                     for d_id, d_data in all_devices.items():
-                        history_data.update(d_data)
+                        history_data.update(copy.deepcopy(d_data))
             except Exception:
                 pass
 
@@ -926,80 +1560,78 @@ class TimeSeriesWidget(QFrame):
             except Exception:
                 pass
 
-        # Method 3: Fallback baseline if no points recorded yet
-        if not history_data or not any(len(pts) > 0 for pts in history_data.values()):
-            history_data = self._generate_baseline_history()
+        # Device databases are recreated on simulation restart. Keep already
+        # plotted real samples inside the rolling window and merge new samples.
+        merged = {}
+        cutoff = time.time() - 3600.0
+        for key in self.canvas.history_data.keys() | history_data.keys():
+            by_time = {}
+            for point in self.canvas.history_data.get(key, []) + history_data.get(key, []):
+                if not isinstance(point, dict):
+                    continue
+                timestamp = point.get("time")
+                if isinstance(timestamp, (int, float)) and math.isfinite(timestamp) and timestamp >= cutoff:
+                    by_time[timestamp] = point
+            merged[key] = [by_time[timestamp] for timestamp in sorted(by_time)]
+        history_data = merged
 
-        # Ensure full 1-hour rolling window (3600 seconds) is populated:
-        all_ts = [float(pt["time"]) for pts in history_data.values() for pt in pts if pt.get("time") is not None]
-        now_ts = time.time()
-        max_ts = max(all_ts) if all_ts else now_ts
-        min_ts = min(all_ts) if all_ts else now_ts
-        span = max_ts - min_ts
+        if self._reset_after_ts is not None:
+            history_data = {
+                key: [point for point in points if isinstance(point, dict)
+                      and isinstance(point.get("time"), (int, float))
+                      and point["time"] > self._reset_after_ts]
+                for key, points in history_data.items()
+            }
 
-        if span < 3500.0:
-            target_start = max_ts - 3600.0
-            step = 30.0
-            total_steps = max(1, int((min_ts - target_start) / step))
-
-            for key, cfg in self.canvas.METRIC_CONFIG.items():
-                pts = history_data.setdefault(key, [])
-                first_val = pts[0].get("value") if pts else None
-                nom_min, nom_max = cfg.get("nominal", (0.0, 100.0))
-                nom_mid = (nom_min + nom_max) / 2.0
-
-                if first_val is not None:
+        # Derive BESS Charge and Discharge if missing but Battery.Power exists
+        if "Battery.Power" in history_data and ("BESS.ChargePower" not in history_data or not history_data["BESS.ChargePower"]):
+            chg_pts = []
+            dis_pts = []
+            for pt in history_data["Battery.Power"]:
+                t = pt.get("time")
+                v = pt.get("value")
+                if t is not None and v is not None:
                     try:
-                        connect_val = float(first_val)
+                        vf = float(v)
+                        chg_pts.append({"time": t, "timestamp": pt.get("timestamp", ""), "value": round(max(0.0, -vf), 1)})
+                        dis_pts.append({"time": t, "timestamp": pt.get("timestamp", ""), "value": round(max(0.0, vf), 1)})
                     except (ValueError, TypeError):
-                        connect_val = nom_mid
-                else:
-                    connect_val = nom_mid
+                        pass
+            if chg_pts:
+                history_data["BESS.ChargePower"] = chg_pts
+                history_data["BESS.DischargePower"] = dis_pts
 
-                backfill_pts = []
-                cur_t = target_start
-                step_idx = 0
-                while cur_t < min_ts:
-                    progress = step_idx / total_steps
-                    iso_t = datetime.fromtimestamp(cur_t).isoformat()
+        if "PCS.ACVoltage" in history_data and ("PCS.AC_Voltage" not in history_data or not history_data["PCS.AC_Voltage"]):
+            history_data["PCS.AC_Voltage"] = history_data["PCS.ACVoltage"]
 
-                    if key == "SOC":
-                        base_v = (connect_val - 2.8) + (2.8 * progress)
-                        v = round(base_v + 0.08 * math.sin(step_idx * 0.2), 2)
-                    elif key == "Grid.Voltage":
-                        v = round(connect_val + 0.12 * math.sin(step_idx * 0.15) + 0.04 * math.cos(step_idx * 0.08), 2)
-                    elif key == "Network.LoadPower":
-                        v = round(connect_val + 80.0 * math.sin(step_idx * 0.14), 1)
-                    elif key in ("Grid.BUS_A_Voltage", "Grid.BUS_B_Voltage", "Grid.BUS_C_Voltage", "PCS.AC_Voltage"):
-                        v = round(connect_val + 2.0 * math.sin(step_idx * 0.16 + (0.5 if "B" in key else 1.0 if "C" in key else 0.0)), 1)
-                    elif key == "Network.LoadVoltage":
-                        v = round(connect_val + 3.0 * math.sin(step_idx * 0.18), 1)
-                    elif key in ("Battery.Power", "PCS.ActivePowerOutput"):
-                        v = round(connect_val + 25.0 * math.sin(step_idx * 0.12), 1)
-                    elif key == "Grid.Frequency":
-                        v = round(connect_val + 0.025 * math.sin(step_idx * 0.25), 3)
-                    else:
-                        v = round(connect_val + 10.0 * math.sin(step_idx * 0.1), 1)
-
-                    backfill_pts.append({"time": cur_t, "timestamp": iso_t, "value": v})
-                    cur_t += step
-                    step_idx += 1
-
-                history_data[key] = backfill_pts + pts
+        for key, sign in (("BESS.ChargePower", -1), ("BESS.DischargePower", 1)):
+            for point in history_data.get(key, []):
+                try:
+                    value = float(point.get("value"))
+                    if math.isfinite(value):
+                        point["value"] = sign * abs(value)
+                except (TypeError, ValueError):
+                    pass
 
         if history_data:
-            self.canvas.update_history(history_data, window_seconds=3600.0)
+            if history_data != self.canvas.history_data or self.canvas.window_seconds != 3600.0:
+                self.canvas.update_history(history_data, window_seconds=3600.0)
 
             if self.compact:
                 grid_v = self._get_latest_val(history_data, "Grid.Voltage", "kV")
                 load_p = self._get_latest_val(history_data, "Network.LoadPower", "kW")
                 bus_a = self._get_latest_val(history_data, "Grid.BUS_A_Voltage", "V")
                 soc = self._get_latest_val(history_data, "SOC", "%")
-                if self.canvas.selected_metric != "ALL":
-                    cfg = self.canvas.METRIC_CONFIG.get(self.canvas.selected_metric, {})
-                    sel_lbl = cfg.get("label", self.canvas.selected_metric)
-                    sel_val = self._get_latest_val(history_data, self.canvas.selected_metric, cfg.get("unit", ""))
+                if self.canvas.selected_metrics != {"ALL"} and len(self.canvas.selected_metrics) == 1:
+                    selected_key = next(iter(self.canvas.selected_metrics))
+                    cfg = self.canvas.METRIC_CONFIG.get(selected_key, {})
+                    sel_lbl = cfg.get("label", selected_key)
+                    sel_val = self._get_latest_val(history_data, selected_key, cfg.get("unit", ""))
                     self.compact_status.setText(f"● {sel_lbl}: {sel_val}")
+                elif self.canvas.selected_metrics != {"ALL"}:
+                    self.compact_status.setText(
+                        f"● {len(self.canvas.selected_metrics)} metrics selected"
+                    )
                 else:
                     self.compact_status.setText(f"● Grid: {grid_v} | Load: {load_p} | Bus A: {bus_a} | SOC: {soc}")
             else:
@@ -1011,12 +1643,77 @@ class TimeSeriesWidget(QFrame):
                 if hasattr(self, "legend_labels"):
                     for key, (name, lbl) in self.legend_labels.items():
                         pts = history_data.get(key, [])
+                        if not pts and key == "PCS.AC_Voltage":
+                            pts = history_data.get("PCS.ACVoltage", [])
                         if pts:
                             latest = pts[-1].get("value")
                             if latest is not None:
                                 try:
-                                    lbl.setText(f"{name}: {float(latest):.2f}")
+                                    unit = self.canvas.METRIC_CONFIG.get(key, {}).get("unit", "")
+                                    lbl.setText(f"{name}: {float(latest):.1f} {unit}")
                                 except (ValueError, TypeError):
                                     lbl.setText(f"{name}: {latest}")
                         else:
                             lbl.setText(f"{name}: --")
+
+
+class TimeSeriesFullscreenDialog(QDialog):
+    """
+    Dedicated Fullscreen Dialog for 1-Hour Time Series Trends.
+    - Opens immediately with crisp white background (ZERO black screen flash).
+    - Contains a full-sized TimeSeriesWidget (compact=False) with large fonts and filter pills.
+    - Leaves the compact widget inside its parent QStackedWidget untouched,
+      ensuring the Voltage Profile tab is never hidden or broken upon exiting.
+    - Esc or ✕ button exits cleanly and instantly.
+    """
+
+    def __init__(self, simulator=None, selected_metric="ALL", parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Window)
+        self.setWindowTitle("1-Hour Rolling Time Series Trends (Fullscreen)")
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #FFFFFF;
+            }
+        """)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(0)
+
+        # Full-sized chart widget with full buttons, big canvas, legends
+        self.chart_widget = TimeSeriesWidget(simulator=simulator, compact=False)
+        self.chart_widget.on_metric_selected(selected_metric)
+
+        # Style the fullscreen exit button
+        self.chart_widget.fullscreen_button.setText("✕")
+        self.chart_widget.fullscreen_button.setToolTip("Exit Fullscreen (Esc)")
+        self.chart_widget.fullscreen_button.setStyleSheet("""
+            QPushButton {
+                background: #F1F5F9;
+                color: #475569;
+                border: 1px solid #E2E8F0;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #EF4444;
+                color: #FFFFFF;
+                border: 1px solid #EF4444;
+            }
+        """)
+        try:
+            self.chart_widget.fullscreen_button.clicked.disconnect()
+        except Exception:
+            pass
+        self.chart_widget.fullscreen_button.clicked.connect(self.close)
+
+        layout.addWidget(self.chart_widget)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)

@@ -1,12 +1,15 @@
 import os
+import math
 from datetime import datetime, timedelta
 
 import yaml
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QEventLoop
 from PySide6.QtWidgets import (
     QMainWindow,
+    QApplication,
     QWidget,
+    QFrame,
     QVBoxLayout,
     QHBoxLayout,
     QScrollArea,
@@ -15,15 +18,17 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QSizePolicy,
     QStackedWidget,
+    QGraphicsOpacityEffect,
 )
 
 from state.tags import Tags
+from state.quality import Quality
 from ui.Widget.header import HeaderWidget
 from ui.Widget.navbar import NavBar
 from ui.Widget.ribbon import Ribbon
+from ui.Widget.grid_availability_control import GridAvailabilityControl
 from ui.Widget.power_flow import PowerFlowWidget
 from ui.Widget.voltage_profile_widget import VoltageProfileWidget
-from ui.Widget.bus_voltage_summary import BusVoltageSummaryWidget
 from ui.Widget.branch_summary import BranchSummaryWidget
 from ui.Widget.bess_summary import BessSummaryWidget
 from ui.Widget.bess_dispatch_schedule import BessDispatchScheduleWidget
@@ -37,6 +42,224 @@ from ui.Widget.plant_control_cards import PlantControlCards
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+class EventToast(QFrame):
+    """
+    Floating, non-blocking toast notification banner that pops up smoothly
+    at the top-right of the dashboard whenever a new BESS dispatch event arrives.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("EventToast")
+        self.setFixedWidth(420)
+        self.setFixedHeight(95)
+
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.ToolTip | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.hide()
+
+        self._opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._opacity)
+        self._opacity.setOpacity(1.0)
+
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self._fade_out)
+
+        self._fade = QPropertyAnimation(self._opacity, b"opacity", self)
+        self._fade.setDuration(350)
+        self._fade.setEasingCurve(QEasingCurve.InOutQuad)
+        self._fade.finished.connect(self._on_fade_finished)
+        self._fading_out = False
+
+        self._build_ui()
+
+    def _build_ui(self):
+        self.setStyleSheet("""
+            QFrame#EventToast {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0F172A, stop:1 #1E293B);
+                border: 1px solid #334155;
+                border-left: 5px solid #10B981;
+                border-radius: 8px;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 9, 14, 9)
+        layout.setSpacing(4)
+
+        # Header Row
+        header_row = QHBoxLayout()
+        header_row.setSpacing(6)
+
+        icon_lbl = QLabel("⚡")
+        icon_lbl.setStyleSheet("color: #F59E0B; font-size: 13px; font-weight: bold;")
+        header_row.addWidget(icon_lbl)
+
+        title_lbl = QLabel("NEW DISPATCH EVENT DETECTED")
+        title_lbl.setStyleSheet("color: #38BDF8; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;")
+        header_row.addWidget(title_lbl)
+
+        header_row.addStretch()
+
+        self.time_lbl = QLabel()
+        self.time_lbl.setStyleSheet("color: #94A3B8; font-size: 9.5px; font-weight: 600;")
+        header_row.addWidget(self.time_lbl)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(16, 16)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #94A3B8;
+                border: none;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #FFFFFF;
+            }
+        """)
+        close_btn.clicked.connect(self._fade_out)
+        header_row.addWidget(close_btn)
+        layout.addLayout(header_row)
+
+        # Body Row
+        body_row = QHBoxLayout()
+        body_row.setSpacing(8)
+
+        self.eid_lbl = QLabel("EVENT")
+        self.eid_lbl.setStyleSheet("color: #F8FAFC; font-size: 12px; font-weight: 700; font-family: monospace;")
+        body_row.addWidget(self.eid_lbl)
+
+        self.dec_badge = QLabel("ACTIVE")
+        body_row.addWidget(self.dec_badge)
+        body_row.addStretch()
+        layout.addLayout(body_row)
+
+        # Details Row
+        self.details_lbl = QLabel()
+        self.details_lbl.setStyleSheet("color: #CBD5E1; font-size: 9.5px; font-weight: 500;")
+        layout.addWidget(self.details_lbl)
+
+    def show_event(self, payload: dict | None = None, duration_ms: int = 4000):
+        """Display toast notification with event details."""
+        payload = payload or {}
+        event_id = str(payload.get("event_id") or "EVENT")
+        decision = str(payload.get("decision") or "ACTIVE").upper()
+        load = payload.get("load", 0.0)
+        soc = payload.get("soc", 50.0)
+        time_stamp = payload.get("time_stamp", "")
+
+        time_part = ""
+        if time_stamp:
+            try:
+                time_part = str(time_stamp).split(" ")[-1][:5]
+            except Exception:
+                time_part = str(time_stamp)
+        self.time_lbl.setText(f"Start: {time_part}" if time_part else "")
+        self.eid_lbl.setText(event_id)
+
+        # Decision color theme & accent left border
+        if "CHARGE" in decision:
+            dec_color = "#10B981"
+            dec_bg = "rgba(16, 185, 129, 0.2)"
+            border_left = "#10B981"
+        elif "DISCHARGE" in decision:
+            dec_color = "#F59E0B"
+            dec_bg = "rgba(245, 158, 11, 0.2)"
+            border_left = "#F59E0B"
+        else:
+            dec_color = "#94A3B8"
+            dec_bg = "rgba(148, 163, 184, 0.2)"
+            border_left = "#64748B"
+
+        self.setStyleSheet(f"""
+            QFrame#EventToast {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0F172A, stop:1 #1E293B);
+                border: 1px solid #334155;
+                border-left: 5px solid {border_left};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                background: transparent;
+                border: none;
+            }}
+        """)
+
+        self.dec_badge.setText(decision)
+        self.dec_badge.setStyleSheet(f"""
+            QLabel {{
+                background: {dec_bg};
+                color: {dec_color};
+                font-size: 9px;
+                font-weight: 800;
+                padding: 2px 7px;
+                border-radius: 4px;
+                border: 1px solid {dec_color};
+            }}
+        """)
+
+        try:
+            load_num = float(load)
+            load_str = f"{load_num:.1f} kW"
+        except Exception:
+            load_str = f"{load} kW"
+
+        try:
+            soc_num = float(soc)
+            soc_str = f"{soc_num:.1f}%"
+        except Exception:
+            soc_str = f"{soc}%"
+
+        self.details_lbl.setText(f"Load Demand: {load_str}  |  Target SOC: {soc_str}  |  Window: 15m")
+
+        self.adjustSize()
+        self._place()
+        self._fading_out = False
+        self._fade.stop()
+        self._opacity.setOpacity(1.0)
+        self.show()
+        self.raise_()
+        self._hide_timer.start(max(3500, int(duration_ms)))
+
+    def _place(self):
+        parent_window = self.window() if self.window() else self.parentWidget()
+        if parent_window and parent_window.isVisible():
+            margin = 32
+            win_width = max(1200, parent_window.width())
+            target_x = max(20, win_width - self.width() - margin)
+            target_pt = parent_window.mapToGlobal(QPoint(target_x, 75))
+            self.move(target_pt)
+        else:
+            self.move(800, 75)
+
+    def reposition(self):
+        if self.isVisible():
+            self._place()
+
+    def _fade_out(self):
+        if not self.isVisible() or self._fading_out:
+            return
+        self._fading_out = True
+        self._fade.stop()
+        self._fade.setStartValue(self._opacity.opacity())
+        self._fade.setEndValue(0.0)
+        self._fade.start()
+
+    def _on_fade_finished(self):
+        if self._fading_out:
+            self.hide()
+            self._opacity.setOpacity(1.0)
+            self._fading_out = False
 
 class MainWindow(QMainWindow):
 
@@ -58,6 +281,8 @@ class MainWindow(QMainWindow):
         self.custom_mode = custom_mode
         self.backend_factory = backend_factory
 
+        self.setWindowTitle("ETALab Simulation - Project : KB20 US-MICROSOFT NOIDA")
+        self.plant_yaml_path = os.getenv("PLANT_TOPOLOGY_PATH")
         self.setWindowTitle("Plant Digital Twin")
         self.plant_yaml_path = "plant/plant.yaml"
         self.load_custom_configuration()
@@ -236,18 +461,19 @@ class MainWindow(QMainWindow):
                     font-weight: 700;
                 }
         """)
-        custom_layout.addWidget(
-                plant_title
-        )
+        custom_layout.addWidget(plant_title)
         custom_layout.addSpacing(2)
         self.plantControlCards = PlantControlCards(
-            initial_values=self.get_yaml_transformer_impedance()
+            transformer_list=self.get_yaml_transformer_impedance()
         )
         custom_layout.addWidget(
             self.plantControlCards,
             0,
             Qt.AlignTop
         )
+        self.gridAvailabilityControl = GridAvailabilityControl(self.plant_yaml_path)
+        self.gridAvailabilityControl.availability_changed.connect(self._apply_grid_availability)
+        custom_layout.addWidget(self.gridAvailabilityControl)
         # SUBMIT BUTTON - CUSTOM ONLY
         submit_layout = QHBoxLayout()
         submit_layout.setContentsMargins(0, 15, 0, 0)
@@ -282,6 +508,17 @@ class MainWindow(QMainWindow):
         custom_layout.addLayout(
             submit_layout
         )
+    def _apply_grid_availability(self, available):
+        """Apply the persisted utility switch to registered live grid states."""
+        simulator = getattr(self, "simulator", None)
+        database = getattr(simulator, "plant_database", None)
+        if database is None:
+            return
+        for device_id in database.ids():
+            device = database.device(device_id)
+            if device.exists(Tags.Grid.AVAILABLE):
+                device.set(Tags.Grid.AVAILABLE, available)
+
     def build_builtin_page(self, page):
         page.setSizePolicy(
             QSizePolicy.Expanding,
@@ -330,6 +567,7 @@ class MainWindow(QMainWindow):
         # PAGE 0: ORIGINAL POWER FLOW DASHBOARD
         self.scrollArea = QScrollArea()
         self.scrollArea.setWidgetResizable(True)
+        self.scrollArea.verticalScrollBar().setSingleStep(40)
         self.scrollArea.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAsNeeded
         )
@@ -342,57 +580,80 @@ class MainWindow(QMainWindow):
         self.scrollArea.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.central_stack.addWidget(self.scrollArea)
 
-        # SCROLL CONTENT - ORIGINAL 2 ROWS INTACT
+        # SCROLL CONTENT
         scrollContent = QWidget()
-        scrollContent.setMinimumSize(1520, 770)
+        scrollContent.setMinimumSize(1520, 1060)
 
         scrollLayout = QVBoxLayout(scrollContent)
-        scrollLayout.setContentsMargins(0, 0, 0, 0)
-        scrollLayout.setSpacing(0)
+        scrollLayout.setContentsMargins(0, 0, 0, 10)
+        scrollLayout.setSpacing(10)
         scrollLayout.setAlignment(Qt.AlignTop)
 
-        # FIRST ROW - POWER FLOW & BUS VOLTAGES (100% INTACT)
+        # ROW 1 - POWER FLOW DIAGRAM & BUS VOLTAGES (MATCHES REFERENCE DESIGN)
         powerFlowRow = QWidget()
         powerFlowRow.setFixedSize(1520, 510)
 
         self.powerFlow = PowerFlowWidget(
             network_manager=self.simulator
         )
-        self.voltageProfile = VoltageProfileWidget(simulator=self.simulator)
-        self.busVoltageSummary = BusVoltageSummaryWidget()
 
         # POWER FLOW
         self.powerFlow.setParent(powerFlowRow)
         self.powerFlow.move(0, 0)
 
-        # VOLTAGE PROFILE (Different Bus Voltages Chart)
-        self.voltageProfile.setParent(powerFlowRow)
-        self.voltageProfile.move(1190, 0)
-
-        # BUS VOLTAGE SUMMARY (Different Bus Voltages Table)
-        self.busVoltageSummary.setParent(powerFlowRow)
-        self.busVoltageSummary.move(1190, 310)
-
-        # SHOW
+        # SHOW POWER FLOW
         self.powerFlow.show()
-        self.voltageProfile.show()
-        self.busVoltageSummary.show()
 
         scrollLayout.addWidget(powerFlowRow)
 
-        # SECOND ROW - BRANCH SUMMARY, BESS DISPATCH SCHEDULE (MIDDLE), BESS SUMMARY (RIGHT)
-        secondRow = QWidget()
-        secondRow.setFixedSize(1520, 255)
+        # ROW 2 - 2-COLUMN 1-HR TREND & ADJACENT VOLTAGE PROFILE GRAPH
+        trendRow = QWidget()
+        trendRow.setFixedHeight(300)
+        trend_layout = QHBoxLayout(trendRow)
+        trend_layout.setContentsMargins(0, 0, 0, 0)
+        trend_layout.setSpacing(10)
 
-        self.branchSummary = BranchSummaryWidget()
+        # Left slot: 1-Hour Rolling Trends taking 2 columns of space (width: 1030)
+        self.dashboardTimeSeries = TimeSeriesWidget(simulator=self.simulator, dashboard=True)
+        self.dashboardTimeSeries.setParent(trendRow)
+        self.dashboardTimeSeries.setMinimumWidth(1000)
+        trend_layout.addWidget(self.dashboardTimeSeries, 2)
+        self.dashboardTimeSeries.show()
+
+        # Right slot: Adjacent Voltage Profile graph (width: 480)
+        self.adjacentVoltageProfile = VoltageProfileWidget(simulator=self.simulator, width=480, height=265)
+        self.adjacentVoltageProfile.setParent(trendRow)
+        self.adjacentVoltageProfile.setMinimumWidth(480)
+        self.adjacentVoltageProfile.setMaximumSize(16777215, 16777215)
+        trend_layout.addWidget(self.adjacentVoltageProfile, 1)
+        self.adjacentVoltageProfile.show()
+
+        scrollLayout.addWidget(trendRow)
+
+        # ROW 3 - BRANCH SUMMARY, BESS DISPATCH SCHEDULE (MIDDLE), BESS SUMMARY (RIGHT)
+        secondRow = QWidget()
+        secondRow.setMinimumHeight(255)
+        summary_layout = QHBoxLayout(secondRow)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.setSpacing(10)
+
+        self.branchSummary = BranchSummaryWidget(plant_yaml_path=self.plant_yaml_path)
         self.branchSummary.setParent(secondRow)
-        self.branchSummary.setGeometry(0, 0, 390, 250)
+        self.branchSummary.setMinimumSize(390, 250)
+        self.branchSummary.setMaximumSize(16777215, 16777215)
+        summary_layout.addWidget(self.branchSummary, 4)
         self.branchSummary.show()
 
         # Middle slot: BESS Dispatch Schedule (expanded width: 630px)
         self.bessDispatchSchedule = BessDispatchScheduleWidget()
         self.bessDispatchSchedule.setParent(secondRow)
-        self.bessDispatchSchedule.setGeometry(400, 0, 630, 250)
+        self.bessDispatchSchedule.setMinimumWidth(630)
+        self.bessDispatchSchedule.setMaximumSize(16777215, 16777215)
+        summary_layout.addWidget(self.bessDispatchSchedule, 6)
+
+        # Notification Toast popup for new event triggers
+        self.event_toast = EventToast(self)
+        self.bessDispatchSchedule.event_started.connect(self.event_toast.show_event)
 
         result_json = os.getenv("BESS_DISPATCH_RESULT_PATH")
         if not result_json or not os.path.exists(result_json):
@@ -404,12 +665,21 @@ class MainWindow(QMainWindow):
 
         if result_json and os.path.exists(result_json):
             self.bessDispatchSchedule.load_json(result_json)
+        self.bessDispatchSchedule.json_timer.timeout.connect(self._update_header_timing)
+        self.bessDispatchSchedule.event_started.connect(lambda _event: self._update_header_timing())
+        self._update_header_timing()
+        # Keep all dispatch details inside the scrollable dashboard content.
+        dispatch_height = max(250, self.bessDispatchSchedule.layout().minimumSize().height())
+        self.bessDispatchSchedule.setMinimumHeight(dispatch_height)
+        secondRow.setMinimumHeight(max(255, dispatch_height + 5))
         self.bessDispatchSchedule.show()
 
         # Right slot: BESS Summary (compact width: 480px)
         self.bessSummary = BessSummaryWidget()
         self.bessSummary.setParent(secondRow)
-        self.bessSummary.setGeometry(1040, 0, 480, 250)
+        self.bessSummary.setMinimumSize(480, 250)
+        self.bessSummary.setMaximumSize(16777215, 16777215)
+        summary_layout.addWidget(self.bessSummary, 5)
         self.bessSummary.show()
 
         scrollLayout.addWidget(secondRow)
@@ -533,6 +803,8 @@ class MainWindow(QMainWindow):
                 0,
                 self.position_simulation_button
             )
+        if hasattr(self, "event_toast"):
+            self.event_toast.reposition()
 
     def load_custom_configuration(self):
         try:
@@ -629,15 +901,71 @@ class MainWindow(QMainWindow):
                     e
                 )
 
+    def _show_restart_notice(self, text, error=False):
+        if not hasattr(self, "restart_notice"):
+            self.restart_notice = QLabel(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.restart_notice.setAttribute(Qt.WA_ShowWithoutActivating)
+            self.restart_notice.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self._restart_notice_timer = QTimer(self)
+            self._restart_notice_timer.setSingleShot(True)
+            self._restart_notice_timer.timeout.connect(self.restart_notice.hide)
+        self._restart_notice_timer.stop()
+        color = "#991B1B" if error else "#1D4ED8"
+        self.restart_notice.setStyleSheet(
+            f"background: #EFF6FF; color: {color}; border: 1px solid #93C5FD; "
+            "border-radius: 8px; padding: 12px 18px; font-size: 13px; font-weight: 700;")
+        self.restart_notice.setText(text)
+        self.restart_notice.adjustSize()
+        notice_x = max(20, self.width() - self.restart_notice.width() - 20)
+        self.restart_notice.move(self.mapToGlobal(QPoint(notice_x, 90)))
+        self.restart_notice.show()
+        self.restart_notice.raise_()
+        self.restart_notice.repaint()
+
     def restart_simulation(self):
+        if self.simulator is None or getattr(self, "_restart_in_progress", False):
+            return
+        self._restart_in_progress = True
+        self.restart_button.setEnabled(False)
+        self._show_restart_notice("Restarting simulation… Please wait")
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+        # Paint the notice before the synchronous simulator rebuild starts.
+        QTimer.singleShot(100, self._perform_restart_simulation)
+
+    def _perform_restart_simulation(self):
         if self.simulator is None:
             print("ERROR: Simulator is not available")
             return
 
         try:
-            self.simulator.reset(
+            new_net = self.simulator.reset(
                 restart=True
             )
+            if new_net is not None:
+                self.network_manager = new_net
+            elif hasattr(self.simulator, "_network") and self.simulator._network is not None:
+                self.network_manager = self.simulator._network
+
+            if hasattr(self, "adjacentVoltageProfile") and hasattr(self.adjacentVoltageProfile, "set_simulator"):
+                self.adjacentVoltageProfile.set_simulator(self.simulator)
+            if hasattr(self, "dashboardTimeSeries"):
+                self.dashboardTimeSeries.simulator = self.simulator
+                self.dashboardTimeSeries.update_from_simulator(self.simulator)
+            if hasattr(self, "loadDistribution"):
+                self.loadDistribution.simulator = self.simulator
+                self.loadDistribution.update_from_simulator(self.simulator)
+
+            if hasattr(self, "bessDispatchSchedule") and self.bessDispatchSchedule is not None:
+                if getattr(self.bessDispatchSchedule, "running_event_id", None) is None:
+                    self.bessDispatchSchedule.elapsed_seconds = 0
+                    if hasattr(self.bessDispatchSchedule, "schedule") and self.bessDispatchSchedule.schedule:
+                        self.bessDispatchSchedule.set_running_event(self.bessDispatchSchedule.schedule[0].get("event_id"))
+
+            if hasattr(self, "gridAvailabilityControl"):
+                self.gridAvailabilityControl.reload()
+                if self.gridAvailabilityControl.button.isEnabled():
+                    self._apply_grid_availability(self.gridAvailabilityControl.available)
+
             self.simulation_button.setText(
                 "■ Stop Simulation"
             )
@@ -656,11 +984,19 @@ class MainWindow(QMainWindow):
                 }
             """)
             print("Simulation Restarted")
+            self._show_restart_notice("Simulation restarted successfully")
+            self._restart_notice_timer.start(3500)
+
+            self.update_voltage_profile()
         except Exception as e:
             print(
                 "RESTART SIMULATION ERROR:",
                 e
             )
+            self._show_restart_notice(f"Restart failed: {e}", error=True)
+        finally:
+            self._restart_in_progress = False
+            self.restart_button.setEnabled(True)
 
     def submit_configuration(self):
         try:
@@ -698,14 +1034,16 @@ class MainWindow(QMainWindow):
                         break
 
             # ==================================================
-            # TRANSFORMER R / X
+            # TRANSFORMER R / X  (ALL TRANSFORMERS)
             # ==================================================
-            impedance = self.plantControlCards.get_impedance()
+            all_impedances = self.plantControlCards.get_all_impedances()
             for transformer in data.get(
                 "transformers",
                 []
             ):
-                if transformer.get("id") == "T1":
+                tx_id = transformer.get("id")
+                if tx_id in all_impedances:
+                    impedance = all_impedances[tx_id]
                     if "impedance" not in transformer:
                         transformer["impedance"] = {}
                     transformer["impedance"]["r_pu"] = float(
@@ -715,11 +1053,10 @@ class MainWindow(QMainWindow):
                         impedance["x_pu"]
                     )
                     print(
-                        f"T1 | "
+                        f"{tx_id} | "
                         f"R={impedance['r_pu']} pu | "
                         f"X={impedance['x_pu']} pu"
                     )
-                    break
 
             # ==================================================
             # SAVE YAML
@@ -746,6 +1083,16 @@ class MainWindow(QMainWindow):
             )
 
     def get_yaml_transformer_impedance(self):
+        """
+        Returns a list of all transformers with their
+        IDs and impedance values from the YAML file.
+        [
+            {"id": "T1", "r_pu": 0.01, "x_pu": 0.04},
+            {"id": "T2", "r_pu": 0.01, "x_pu": 0.04},
+            ...
+        ]
+        """
+        result = []
         try:
             with open(
                 self.plant_yaml_path,
@@ -756,25 +1103,23 @@ class MainWindow(QMainWindow):
 
             transformers = data.get("transformers", [])
             for transformer in transformers:
-                if transformer.get("id") == "T1":
-                    impedance = transformer.get(
-                        "impedance",
-                        {}
-                    )
-                    return {
-                        "r_pu": impedance.get("r_pu", 0.01),
-                        "x_pu": impedance.get("x_pu", 0.04),
-                    }
+                tx_id = transformer.get("id", "T?")
+                impedance = transformer.get(
+                    "impedance",
+                    {}
+                )
+                result.append({
+                    "id": tx_id,
+                    "r_pu": impedance.get("r_pu", 0.01),
+                    "x_pu": impedance.get("x_pu", 0.04),
+                })
         except Exception as e:
             print(
                 "TRANSFORMER YAML LOAD ERROR:",
                 e
             )
 
-        return {
-            "r_pu": 0.01,
-            "x_pu": 0.04,
-        }
+        return result
 
     def get_yaml_soc_soh(self):
         result = {}
@@ -828,14 +1173,42 @@ class MainWindow(QMainWindow):
             # POWER FLOW / OVERVIEW: Original layout with Bus Voltages 100% visible
             if hasattr(self, "central_stack") and hasattr(self, "scrollArea"):
                 self.central_stack.setCurrentWidget(self.scrollArea)
-            if hasattr(self, "scrollArea") and self.scrollArea:
-                self.scrollArea.verticalScrollBar().setValue(0)
-                self.scrollArea.horizontalScrollBar().setValue(0)
+    
+    def _update_header_timing(self):
+        """Read the dispatch clock independently of plant telemetry updates."""
+        schedule = getattr(self, "bessDispatchSchedule", None)
+        if schedule is None or not hasattr(self, "header"):
+            return
+        elapsed = max(0, int(schedule.elapsed_seconds))
+        self.header.update_elapsed_time(f"{elapsed // 60:02d}:{elapsed % 60:02d} / 15m")
+        sim_dt = schedule.get_current_sim_datetime()
+        self.header.update_simulation_time(
+            sim_dt.strftime("%d-%b-%Y   %H:%M:%S") if sim_dt else "—")
+
+    def _sync_dispatch_power_inputs(self, plant_db):
+        """Publish the active dispatch row's actual load/PV references in kW."""
+        schedule = getattr(self, "bessDispatchSchedule", None)
+        index = getattr(schedule, "running_row_index", None)
+        rows = getattr(schedule, "schedule_data", [])
+        if index is None or not 0 <= index < len(rows):
+            return
+        row = rows[index]
+        database = plant_db.device("PPC")
+        for tag, key in ((Tags.Network.LOAD_POWER, "load"), (Tags.SOLAR.PV_POWER, "pv")):
+            value = row.get(key)
+            if value is not None:
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(value) and value >= 0 and database.exists(tag):
+                    database.set(tag, value)
 
     def update_ribbon(self):
 
         try:
             plant_db = self.simulator.plant_database
+            self._sync_dispatch_power_inputs(plant_db)
             pcs_ids = sorted(
                 device_id
                 for device_id in plant_db.ids()
@@ -851,8 +1224,9 @@ class MainWindow(QMainWindow):
                     "stored_energy": db.value(
                         Tags.Battery.STORED_ENERGY
                     ),
+                    "energy_ready": db.quality(Tags.Battery.STORED_ENERGY) == Quality.GOOD,
                     "active_power": db.value(
-                        Tags.PCS.ACTIVE_POWER_OUTPUT
+                        Tags.PCS.ACTIVE_POWER
                     ),
                     "battery_power": db.value(
                         Tags.Battery.POWER
@@ -870,6 +1244,35 @@ class MainWindow(QMainWindow):
                         Tags.Battery.TEMPERATURE
                     ),
                 })
+
+            # UPDATE BESS SUMMARY
+            bess_rows = []
+
+            for index, pcs in enumerate(pcs_data, start=1):
+                active_power = pcs.get("active_power", 0) or 0
+                soc = pcs.get("soc", 0) or 0
+                stored_energy = pcs.get("stored_energy", 0) or 0
+
+                if active_power < 0:
+                    status = "Charging"
+                elif active_power > 0:
+                    status = "Discharging"
+                else:
+                    status = "Standby"
+
+                bess_rows.append([
+                    f"BESS BANK-{index}",
+                    f"PCS-{index}",
+                    f"{active_power / 1000:.2f}",
+                    "0.00",
+                    f"{soc:.0f}",
+                    f"{stored_energy / 1000:.2f} / 2.00",
+                    status,
+                ])
+
+            self.bessSummary.update_bess_data(
+                bess_rows
+            )
 
             grid_db = plant_db.device("PPC")
             grid_data = {
@@ -894,73 +1297,39 @@ class MainWindow(QMainWindow):
                 "network_losses": grid_db.value(
                     Tags.Network.NETWORK_LOSSES
                 ),
+                "bess_power": grid_db.value(Tags.Battery.POWER),
+                "bess_soc": grid_db.value(Tags.Battery.SOC),
+                "bess_stored_energy": grid_db.value(Tags.Battery.STORED_ENERGY),
+                "bess_energy_ready": grid_db.quality(Tags.Battery.STORED_ENERGY) == Quality.GOOD,
+                "energy_source_key": tuple(id(plant_db.device(device_id)) for device_id in pcs_ids),
             }
 
-            
+            # Get active running event from dispatch schedule
+            active_ev = None
+            if hasattr(self, "bessDispatchSchedule") and hasattr(self.bessDispatchSchedule, "running_row_index"):
+                idx = self.bessDispatchSchedule.running_row_index
+                if idx is not None and hasattr(self.bessDispatchSchedule,
+                                "schedule_data") and self.bessDispatchSchedule.schedule_data:
+                    if 0 <= idx < len(self.bessDispatchSchedule.schedule_data):
+                        active_ev = self.bessDispatchSchedule.schedule_data[idx]
+
             # UPDATE RIBBON
             self.ribbon.update_data(
                 grid_data,
                 pcs_data,
+                solar_data={"active_power": (grid_db.value(Tags.SOLAR.PV_POWER)
+                                              if grid_db.exists(Tags.SOLAR.PV_POWER) else 0.0)},
                 schedule_data=self.bessDispatchSchedule.result_data,
+                active_event=active_ev  or {},
             )
 
-            latest_load = grid_data.get("load_power", 0)
+            latest_load = grid_data.get("load_power", 0) or 0
             self.bessDispatchSchedule.update_twin_load(
                 latest_load
             )
 
-            # SYNC TOP HEADER (ELAPSED TIME & SIMULATION TIME)
-            if hasattr(self, "header") and hasattr(self, "bessDispatchSchedule"):
-                elapsed_txt = getattr(self.bessDispatchSchedule, "elapsed_time_top", None)
-                if elapsed_txt and elapsed_txt.text():
-                    el_val = elapsed_txt.text().replace("Elapsed: ", "").strip()
-                    self.header.update_elapsed_time(el_val)
-
-                # Sync Simulation Time with event timeline + elapsed seconds
-                base_dt = None
-                if hasattr(self.bessDispatchSchedule, "result_data"):
-                    recs = self.bessDispatchSchedule.result_data.get("schedule", [])
-                    if recs and isinstance(recs, list) and recs[0].get("time_stamp"):
-                        try:
-                            base_dt = datetime.fromisoformat(recs[0]["time_stamp"])
-                        except Exception:
-                            pass
-                if not base_dt:
-                    base_dt = datetime(2026, 9, 22, 0, 0, 0)
-
-                el_secs = getattr(self.bessDispatchSchedule, "elapsed_seconds", 0)
-                sim_dt = base_dt + timedelta(seconds=el_secs)
-                self.header.update_simulation_time(sim_dt.strftime("%d-%b-%Y   %H:%M:%S"))
-
+            self._update_header_timing()
             
-            # UPDATE BESS SUMMARY
-            bess_rows = []
-
-            for index, pcs in enumerate(pcs_data, start=1):
-                active_power = pcs.get("active_power", 0)
-                soc = pcs.get("soc", 0)
-                stored_energy = pcs.get("stored_energy", 0)
-
-                if active_power < 0:
-                    status = "Discharging"
-                elif active_power > 0:
-                    status = "Charging"
-                else:
-                    status = "Standby"
-
-                bess_rows.append([
-                    f"BESS BANK-{index}",
-                    f"PCS-{index}",
-                    f"{active_power / 1000:.2f}",
-                    "0.00",
-                    f"{soc:.0f}",
-                    f"{stored_energy / 1000:.2f} / 2.00",
-                    status,
-                ])
-
-            self.bessSummary.update_bess_data(
-                bess_rows
-            )
 
         except Exception as e:
 
@@ -970,6 +1339,8 @@ class MainWindow(QMainWindow):
             )
 
     def update_voltage_profile(self):
+        if self.simulator and getattr(self.simulator, "_network", None) is not None:
+            self.network_manager = self.simulator._network
 
         if not self.network_manager:
             print("ERROR: NetworkManager is None")
@@ -981,18 +1352,34 @@ class MainWindow(QMainWindow):
             print("Voltage profile is empty")
             return
 
-        # VOLTAGE PROFILE CHART
-        self.voltageProfile.update_voltage_data(
-            profile
-        )
+        # VOLTAGE PROFILE CHARTS
+        if hasattr(self, "adjacentVoltageProfile"):
+            self.adjacentVoltageProfile.update_voltage_data(
+                profile
+            )
 
-        # BUS VOLTAGE SUMMARY
-        self.busVoltageSummary.update_voltage_data(
-            profile
-        )
+        # The bus table has its own data input, separate from the chart.
+        if hasattr(self, "bessSummary"):
+            self.bessSummary.update_voltage_data(profile)
 
-        # 1-HOUR TIME SERIES CHART
+        # BRANCH SUMMARY (DYNAMIC FROM TOPOLOGY & NETWORK)
+        if hasattr(self, "branchSummary"):
+            self.branchSummary.update_from_network(
+                self.network_manager
+            )
+
+        # 1-HOUR TIME SERIES CHARTS
         if hasattr(self, "timeSeriesWidget"):
             self.timeSeriesWidget.update_from_simulator(
+                self.simulator
+            )
+        if hasattr(self, "dashboardTimeSeries"):
+            self.dashboardTimeSeries.update_from_simulator(
+                self.simulator
+            )
+
+        # LOAD DISTRIBUTION
+        if hasattr(self, "loadDistribution"):
+            self.loadDistribution.update_from_simulator(
                 self.simulator
             )

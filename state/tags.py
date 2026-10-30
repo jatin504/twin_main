@@ -14,6 +14,11 @@ from __future__ import annotations
 
 class Tags:
 
+    class SOLAR:
+        """Solar plant telemetry."""
+
+        PV_POWER = "Solar.PV_Power"  # Aggregate PV active power in kW
+
     class PCS:
 
         STATE = "PCS.State"

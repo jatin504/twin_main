@@ -6,6 +6,10 @@ These values should never change during runtime.
 
 from __future__ import annotations
 
+from datetime import timezone, timedelta
+
+IST: timezone = timezone(timedelta(hours=5, minutes=30), name="IST")
+
 SIMULATION_STEP_SEC: float = 0.1
 
 DEFAULT_GRID_VOLTAGE: float = 690.0

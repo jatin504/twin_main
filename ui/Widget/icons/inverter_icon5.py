@@ -191,9 +191,9 @@ class InverterIcon5(QWidget):
 
         # ----- Title -----
 
-        titleLabel = QLabel(title)
+        self.titleLabel = QLabel(title)
 
-        titleLabel.setStyleSheet("""
+        self.titleLabel.setStyleSheet("""
             QLabel {
                 background: transparent;
                 color: #30343B;
@@ -204,9 +204,9 @@ class InverterIcon5(QWidget):
 
         # ----- MW -----
 
-        mwLabel = QLabel(mw)
+        self.mwLabel = QLabel(mw)
 
-        mwLabel.setStyleSheet("""
+        self.mwLabel.setStyleSheet("""
             QLabel {
                 background: transparent;
                 color: #404040;
@@ -216,9 +216,9 @@ class InverterIcon5(QWidget):
 
         # ----- MVAr -----
 
-        mvarLabel = QLabel(mvar)
+        self.mvarLabel = QLabel(mvar)
 
-        mvarLabel.setStyleSheet("""
+        self.mvarLabel.setStyleSheet("""
             QLabel {
                 background: transparent;
                 color: #404040;
@@ -228,9 +228,9 @@ class InverterIcon5(QWidget):
 
         # ----- PF -----
 
-        pfLabel = QLabel(pf)
+        self.pfLabel = QLabel(pf)
 
-        pfLabel.setStyleSheet("""
+        self.pfLabel.setStyleSheet("""
             QLabel {
                 background: transparent;
                 color: #404040;
@@ -240,11 +240,11 @@ class InverterIcon5(QWidget):
 
         # ----- Loading -----
 
-        loadingLabel = QLabel(
+        self.loadingLabel = QLabel(
             f"Loading:  {loading} %"
         )
 
-        loadingLabel.setStyleSheet("""
+        self.loadingLabel.setStyleSheet("""
             QLabel {
                 background: transparent;
                 color: #58B52A;
@@ -255,14 +255,14 @@ class InverterIcon5(QWidget):
 
         # Add text
 
-        textLayout.addWidget(titleLabel)
-        textLayout.addWidget(mwLabel)
-        textLayout.addWidget(mvarLabel)
-        textLayout.addWidget(pfLabel)
+        textLayout.addWidget(self.titleLabel)
+        textLayout.addWidget(self.mwLabel)
+        textLayout.addWidget(self.mvarLabel)
+        textLayout.addWidget(self.pfLabel)
 
         textLayout.addSpacing(5)
 
-        textLayout.addWidget(loadingLabel)
+        textLayout.addWidget(self.loadingLabel)
 
         layout.addLayout(textLayout, 0)
 
@@ -291,3 +291,21 @@ class InverterIcon5(QWidget):
                 background: transparent;
             }
         """)
+    def update_data(
+        self,
+        active_power_mw=None,
+        reactive_power_mvar=None,
+        power_factor=None,
+        loading_pct=None,
+    ):
+        """Update solar inverter live readings from mapped tags."""
+        if active_power_mw is not None:
+            self.mwLabel.setText(f"{float(active_power_mw):.2f} MW")
+        if reactive_power_mvar is not None:
+            self.mvarLabel.setText(f"{float(reactive_power_mvar):.2f} MVAr")
+        if power_factor is not None:
+            pf_val = float(power_factor)
+            suffix = " Lag" if pf_val >= 0 else " Lead"
+            self.pfLabel.setText(f"PF {abs(pf_val):.2f}{suffix}")
+        if loading_pct is not None:
+            self.loadingLabel.setText(f"Loading:  {float(loading_pct):.1f} %")

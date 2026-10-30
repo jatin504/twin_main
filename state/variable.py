@@ -25,6 +25,7 @@ from threading import RLock
 from typing import Any
 
 from state.quality import Quality
+from common.constants import IST
 
 
 @dataclass(slots=True)
@@ -75,7 +76,7 @@ class Variable:
 
         self._quality = quality
 
-        self._timestamp = datetime.utcnow()
+        self._timestamp = datetime.now(IST)
 
         self._dirty = True
 
@@ -154,7 +155,7 @@ class Variable:
 
             self._value = value
             self._quality = quality
-            self._timestamp = datetime.utcnow()
+            self._timestamp = datetime.now(IST)
             self._dirty = True
 
     # -------------------------------------------------
@@ -171,7 +172,7 @@ class Variable:
     def force_quality(self, quality: Quality) -> None:
         with self._lock:
             self._quality = quality
-            self._timestamp = datetime.utcnow()
+            self._timestamp = datetime.now(IST)
             self._dirty = True
 
     # -------------------------------------------------
