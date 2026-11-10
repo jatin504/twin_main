@@ -1,5 +1,4 @@
 from common.constants import (
-    DEFAULT_GRID_AVAILABLE,
     DEFAULT_GRID_FREQUENCY,
     DEFAULT_GRID_VOLTAGE,
 )
@@ -32,11 +31,6 @@ class GridModel(BaseSimulationModel):
         self.previous_frequency = self.NOMINAL_FREQUENCY
 
     def initialize(self):
-
-        self.db.set(
-            Tags.Grid.AVAILABLE,
-            DEFAULT_GRID_AVAILABLE,
-        )
 
         self.db.set(
             Tags.Grid.VOLTAGE,

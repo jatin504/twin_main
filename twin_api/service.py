@@ -2,26 +2,31 @@
 import asyncio
 import logging
 import os
+from functools import partial
 from math import isfinite
 from pathlib import Path
 from uuid import uuid4
 from core.simulator import Simulator
 from models.dispatch_schedule import DispatchSchedule
-from runtime.build_simulation import build_simulation
+from models.protection import ProtectionManager
+from runtime.build_simulation import apply_grid_availability, build_simulation
 from protocol.modbus.adapter import ModbusAdapter
 from protocol.modbus.dispatcher import ModbusDispatcher
 from protocol.modbus.server import ModbusTCPServer
 from protocol.modbus.service import ModbusService
 from twin_api.dashboard import feeder_load, transformer_loading
+from twin_api.dispatch_view import DispatchView
+from twin_api.custom_config import read_configuration, save_configuration, save_grid_availability
 from twin_api.event_history import EventHistory
 
 logger = logging.getLogger(__name__)
+PLANT_PATH = Path("plant/plant.yaml")
 
 
-def build_backend():
+def build_backend(plant_path=PLANT_PATH):
     # Lazy imports keep app creation independent of the physics stack and Qt UI.
     simulator = Simulator()
-    _, network, simulator = build_simulation(simulator, "plant/plant.yaml")
+    _, network, simulator = build_simulation(simulator, plant_path)
     dispatch_path = os.getenv("BESS_DISPATCH_RESULT_PATH")
     if dispatch_path:
         schedule = DispatchSchedule(
@@ -46,8 +51,9 @@ async def open_modbus(simulator):
 class SimulationService:
     """Serialize starts and preserve startup if an HTTP caller disconnects."""
 
-    def __init__(self, builder=build_backend, listener=open_modbus):
-        self._builder = builder
+    def __init__(self, builder=None, listener=open_modbus, *, plant_path=PLANT_PATH):
+        self._builder = builder if builder is not None else partial(build_backend, plant_path)
+        self._plant_path = plant_path
         self._listener = listener
         self._lock = asyncio.Lock()
         self._transition = None
@@ -55,8 +61,40 @@ class SimulationService:
         self._simulator = None
         self._server = None
         self._run_id = None
+        self._dispatch_view = DispatchView()
         history_dir = Path(os.getenv("BESS_EVENT_HISTORY_DIR") or "data/event_history")
         self.event_history = EventHistory(history_dir)
+
+    async def configuration(self):
+        async with self._lock:
+            return read_configuration(self._plant_path)
+
+    async def update_configuration(self, body):
+        async with self._lock:
+            if self._transition is not None and not self._transition.done():
+                return None
+            return save_configuration(self._plant_path, body)
+
+    async def update_grid_availability(self, available):
+        async with self._lock:
+            if self._transition is not None and not self._transition.done():
+                return None
+            save_grid_availability(self._plant_path, available)
+            applied_live = self._status() == "running"
+            if applied_live:
+                apply_grid_availability(self._simulator, available)
+            return {"grid_available": available, "applied_live": applied_live}
+
+    async def update_bank_fault(self, device_id, kind, value):
+        """Set a live protection test measurement on one running PCS."""
+        async with self._lock:
+            if self._status() != "running":
+                return False
+            for model in self._simulator.scheduler.models:
+                if isinstance(model, ProtectionManager) and model.device_id == device_id:
+                    model.set_test_measurement(kind, value)
+                    return True
+            raise KeyError(device_id)
 
     async def start(self):
         """Accept startup without waiting for initialization to finish."""
@@ -190,16 +228,10 @@ class SimulationService:
             }
 
     async def dispatch(self):
-        """Read the schedule and active interval from the current run."""
+        """Read the file-driven dashboard independently of simulation lifecycle."""
         async with self._lock:
-            status = self._status()
-            if status == "running":
-                schedule = self._simulator.dispatch_schedule
-                if schedule is not None:
-                    return schedule.snapshot()
-                status = "no_schedule"
-            return {"status": status, "simulation_time": None, "active_event": None,
-                    "current_interval": None, "rows": []}
+            snapshot = self._dispatch_view.snapshot(os.getenv("BESS_DISPATCH_RESULT_PATH"))
+            return {**snapshot, "simulation_status": self._status()}
 
     async def _start(self):
         simulator, network = await asyncio.to_thread(self._builder)

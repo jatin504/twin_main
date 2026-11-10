@@ -1,15 +1,91 @@
 """HTTP mapping only; simulation ownership lives in the service."""
+import asyncio
+import json
+
+from math import isfinite
+
 from quart import Blueprint, Response, current_app, jsonify, request
 
+from models.protection import ProtectionManager
+from twin_api.custom_config import InvalidConfiguration
 from twin_api.trends_stream import stream_trends
 
 simulation_bp = Blueprint("simulation", __name__)
+BANK_FAULTS = {
+    "voltage": (480, "V", ProtectionManager.BASE_VOLTAGE * ProtectionManager.MIN_VOLTAGE_PU,
+                ProtectionManager.BASE_VOLTAGE * ProtectionManager.MAX_VOLTAGE_PU),
+    "frequency": (53, "Hz", ProtectionManager.MIN_FREQUENCY_HZ, ProtectionManager.MAX_FREQUENCY_HZ),
+    "temperature": (56, "°C", None, ProtectionManager.MAX_TEMPERATURE_C),
+}
 
 
 def _live_response(**payload):
     response = jsonify(payload)
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@simulation_bp.get("/configuration/read")
+async def read_configuration():
+    service = current_app.extensions["simulation"]
+    return _live_response(**await service.configuration())
+
+
+@simulation_bp.post("/configuration")
+async def post_configuration():
+    service = current_app.extensions["simulation"]
+    try:
+        configuration = await service.update_configuration(await request.get_json(silent=True))
+    except InvalidConfiguration as error:
+        return jsonify(error=str(error)), 400
+    if configuration is None:
+        return jsonify(error="Wait for the simulation transition to finish"), 409
+    return _live_response(configuration=configuration, applies_on_rebuild=True)
+
+
+@simulation_bp.post("/grid-availability")
+async def post_grid_availability():
+    body = await request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {"available"} or not isinstance(body["available"], bool):
+        return jsonify(error="Send available as a JSON boolean"), 400
+    service = current_app.extensions["simulation"]
+    result = await service.update_grid_availability(body["available"])
+    if result is None:
+        return jsonify(error="Wait for the simulation transition to finish"), 409
+    return _live_response(**result)
+
+
+@simulation_bp.post("/bank-fault")
+async def post_bank_fault():
+    body = await request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) - {"device_id", "type", "enabled", "value"}:
+        return jsonify(error="Send device_id, type, and enabled; value is optional"), 400
+    device_id, kind, enabled = body.get("device_id"), body.get("type"), body.get("enabled")
+    if not isinstance(device_id, str) or not device_id.strip() or not isinstance(enabled, bool):
+        return jsonify(error="device_id must be a PCS ID and enabled must be a boolean"), 400
+    if not isinstance(kind, str) or kind not in BANK_FAULTS:
+        return jsonify(error="type must be voltage, frequency, or temperature"), 400
+    default, unit, lower, upper = BANK_FAULTS[kind]
+    value = None
+    if enabled:
+        value = body.get("value", default)
+        if (
+            type(value) not in (int, float) or not isfinite(value)
+            or (lower is not None and value < 0)
+            or not (value > upper or (lower is not None and value < lower))
+        ):
+            return jsonify(error=f"value must trigger the selected protection check ({unit})"), 400
+    elif "value" in body:
+        return jsonify(error="Omit value when clearing a bank fault"), 400
+
+    service = current_app.extensions["simulation"]
+    try:
+        applied = await service.update_bank_fault(device_id, kind, value)
+    except KeyError:
+        return jsonify(error=f"Unknown PCS: {device_id}"), 404
+    if not applied:
+        return jsonify(error="Start the simulation before changing a live bank fault"), 409
+    return _live_response(device_id=device_id, type=kind, enabled=enabled, value=value, unit=unit)
 
 
 @simulation_bp.get("/status")
@@ -56,6 +132,30 @@ async def get_event_feasibility():
 async def get_dispatch():
     response = jsonify(await current_app.extensions["simulation"].dispatch())
     response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@simulation_bp.get("/bees-dispatch-schedule/stream")
+async def get_dispatch_stream():
+    service = current_app.extensions["simulation"]
+
+    async def updates():
+        previous_rows = None
+        while True:
+            payload = await service.dispatch()
+            rows = payload["rows"]
+            if rows == previous_rows:
+                payload = {key: value for key, value in payload.items() if key != "rows"}
+            else:
+                previous_rows = rows
+            yield f"event: dispatch\ndata: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(1)
+
+    response = Response(
+        updates(), mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+    response.timeout = None
     return response
 
 

@@ -16,11 +16,10 @@ def _timestamp(value):
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=IST)
 
 
-class DispatchSchedule(BaseSimulationModel):
-    """Keep the current dispatch interval in RAM and feed its load and PV inputs."""
+class DispatchPlan:
+    """Read scheduled intervals and format their API representation."""
 
-    def __init__(self, context, path: Path):
-        super().__init__(context)
+    def __init__(self, path: Path):
         with path.open(encoding="utf-8-sig") as source:
             plan = json.load(source)
         self._rows = sorted(plan["schedule"], key=lambda row: _timestamp(row["time_stamp"]))
@@ -36,13 +35,25 @@ class DispatchSchedule(BaseSimulationModel):
             if (decision := result.get("bess_event_decision", {})).get("time_stamp")
         }
         self._initial_time = self._select_start(plan)
-        self._clock = self._initial_time
-        self._lock = Lock()
-        self._index = None
-        self._powers = [
-            (self._power(row, "load_kw"), self._power(row, "pv_kw"))
-            for row in self._rows
-        ]
+        self.running_event_id = plan.get("running_event_id")
+        self.running_timestamp = (
+            _timestamp(plan["running_timestamp"]) if plan.get("running_timestamp") else None
+        )
+
+    def display_snapshot(self, elapsed_seconds):
+        """Display the file's selected interval with a clock independent of the solver."""
+        if not self.running_event_id and self.running_timestamp is None:
+            return self._snapshot(None, None, waiting=True)
+        index = bisect_right(self._starts, self._initial_time) - 1
+        return self._snapshot(
+            index, (self.running_timestamp or self._starts[index]) + timedelta(seconds=elapsed_seconds),
+            elapsed_seconds=elapsed_seconds,
+        )
+
+    @property
+    def display_start(self):
+        index = bisect_right(self._starts, self._initial_time) - 1
+        return self.running_timestamp or self._starts[index]
 
     def _select_start(self, plan):
         event_id = plan.get("running_event_id")
@@ -62,6 +73,71 @@ class DispatchSchedule(BaseSimulationModel):
         # The exported timestamp can point into a different event. Honor the
         # explicit event ID and resume from a row belonging to that event.
         return candidates[max(0, bisect_right(candidates, start) - 1)]
+
+    def _row(self, index, active_index, waiting):
+        row = self._rows[index]
+        outcome = self._outcomes.get(self._starts[index], {})
+        decision = outcome.get("bess_event_decision", {})
+        actual = next(
+            (step["battery_energy_mwh"] for step in reversed(outcome.get("strategy_result", []))
+             if "battery_energy_mwh" in step),
+            None,
+        )
+        passed = outcome.get("is_pass")
+        status = "running" if index == active_index else (
+            "pass" if passed is True else "fail" if passed is False else
+            "completed" if not waiting and (active_index is None or index < active_index) else "upcoming"
+        )
+        return {
+            **row,
+            "status": status,
+            "expected_energy_mwh": decision.get("battery_energy_mwh", row.get("battery_energy_mwh")),
+            "actual_energy_mwh": actual,
+            "is_pass": passed,
+            "fault": outcome.get("fault"),
+        }
+
+    def _snapshot(self, index, timestamp, *, elapsed_seconds=None, waiting=False):
+        rows = [self._row(i, index, waiting) for i in range(len(self._rows))]
+        if index is None:
+            return {"status": "waiting" if waiting else "completed",
+                    "simulation_time": None if waiting else self._end.isoformat(),
+                    "active_event": None, "current_interval": None, "rows": rows}
+        start = self._starts[index]
+        end = self._starts[index + 1] if index + 1 < len(rows) else self._end
+        duration = (end - start).total_seconds()
+        if elapsed_seconds is None:
+            elapsed_seconds = (timestamp - start).total_seconds()
+        else:
+            duration = 900
+        return {
+            "status": "running",
+            "simulation_time": timestamp.isoformat(),
+            "active_event": {"event_id": rows[index].get("event_id")},
+            "current_interval": {
+                **rows[index],
+                "index": index,
+                "elapsed_seconds": elapsed_seconds,
+                "remaining_seconds": duration - elapsed_seconds,
+            },
+            "rows": rows,
+        }
+
+
+class DispatchSchedule(DispatchPlan, BaseSimulationModel):
+    """Replay dispatch inputs on the simulation clock."""
+
+    def __init__(self, context, path: Path):
+        BaseSimulationModel.__init__(self, context)
+        DispatchPlan.__init__(self, path)
+        self._clock = self._initial_time
+        self._lock = Lock()
+        self._index = None
+        self._published_time = None
+        self._powers = [
+            (self._power(row, "load_kw"), self._power(row, "pv_kw"))
+            for row in self._rows
+        ]
 
     @staticmethod
     def _power(row, key):
@@ -91,29 +167,6 @@ class DispatchSchedule(BaseSimulationModel):
         self.db.set(Tags.SOLAR.PV_POWER, pv_kw)
         self._published_time = self._clock
 
-    def _row(self, index):
-        row = self._rows[index]
-        outcome = self._outcomes.get(self._starts[index], {})
-        decision = outcome.get("bess_event_decision", {})
-        actual = next(
-            (step["battery_energy_mwh"] for step in reversed(outcome.get("strategy_result", []))
-             if "battery_energy_mwh" in step),
-            None,
-        )
-        passed = outcome.get("is_pass")
-        status = "running" if index == self._index else (
-            "pass" if passed is True else "fail" if passed is False else
-            "completed" if self._index is None or index < self._index else "upcoming"
-        )
-        return {
-            **row,
-            "status": status,
-            "expected_energy_mwh": decision.get("battery_energy_mwh", row.get("battery_energy_mwh")),
-            "actual_energy_mwh": actual,
-            "is_pass": passed,
-            "fault": outcome.get("fault"),
-        }
-
     def active_position(self):
         """Return the current event, its interval index and simulation time."""
         with self._lock:
@@ -138,22 +191,4 @@ class DispatchSchedule(BaseSimulationModel):
     def snapshot(self):
         """Return the applied interval, its clock, and the plan rows."""
         with self._lock:
-            rows = [self._row(index) for index in range(len(self._rows))]
-            index = self._index
-            if index is None:
-                return {"status": "completed", "simulation_time": self._end.isoformat(),
-                        "active_event": None, "current_interval": None, "rows": rows}
-            start = self._starts[index]
-            end = self._starts[index + 1] if index + 1 < len(rows) else self._end
-            return {
-                "status": "running",
-                "simulation_time": self._published_time.isoformat(),
-                "active_event": {"event_id": rows[index].get("event_id")},
-                "current_interval": {
-                    **rows[index],
-                    "index": index,
-                    "elapsed_seconds": (self._published_time - start).total_seconds(),
-                    "remaining_seconds": (end - self._published_time).total_seconds(),
-                },
-                "rows": rows,
-            }
+            return self._snapshot(self._index, self._published_time)

@@ -6,6 +6,15 @@ from plant.parser import PlantParser
 
 from runtime.load_forecast import start_forecast_thread
 from runtime.model_factory import ModelFactory
+from state.tags import Tags
+
+
+def apply_grid_availability(simulator, available):
+    """Set the utility state on each device that exposes the grid tag."""
+    for _, database in simulator.plant_database.items():
+        if database.exists(Tags.Grid.AVAILABLE):
+            database.set(Tags.Grid.AVAILABLE, available)
+
 
 def build_simulation(simulator, yaml_path):
 
@@ -43,6 +52,10 @@ def build_simulation(simulator, yaml_path):
         simulator,
         ppc,
     )
+    available = topology["plant"].get("utility", {}).get("available", True)
+    if not isinstance(available, bool):
+        raise ValueError("plant.utility.available must be true or false")
+    apply_grid_availability(simulator, available)
 
     # Grid Network
     net = NetworkManager(
