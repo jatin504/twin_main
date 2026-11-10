@@ -5,10 +5,10 @@ import copy
 import json
 import math
 import numpy as np
-import os
 import time
 from datetime import datetime
 from common.constants import IST
+from common.history_config import load_history_config
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent
 from state.tags import Tags
@@ -1106,7 +1106,7 @@ class TimeSeriesWidget(QFrame):
             title_box.setSpacing(2)
             title = QLabel("1-HOUR TIME SERIES HISTORY (Rolling Window)")
             title.setStyleSheet("color: #0F172A; font-size: 13px; font-weight: 700; font-family: 'Segoe UI', sans-serif; border: none;")
-            subtitle = QLabel("Live 3600s rolling buffer from plant digital twin & data/history.json")
+            subtitle = QLabel("Live 3600s rolling buffer from plant digital twin and its history export")
             subtitle.setStyleSheet("color: #64748B; font-size: 10px; font-weight: 500; border: none;")
             title_box.addWidget(title)
             title_box.addWidget(subtitle)
@@ -1551,10 +1551,11 @@ class TimeSeriesWidget(QFrame):
             except Exception:
                 pass
 
-        # Method 2: Fallback to reading data/history.json file
-        if not history_data and os.path.exists("data/history.json"):
+        # Method 2: Fall back to the configured history export.
+        if not history_data:
             try:
-                with open("data/history.json", "r", encoding="utf-8") as f:
+                config = getattr(sim, "history_config", None) or load_history_config()
+                with open(config.export_file_path, "r", encoding="utf-8") as f:
                     disk_data = json.load(f)
                     history_data = disk_data.get("devices", {}).get("PPC", {})
             except Exception:

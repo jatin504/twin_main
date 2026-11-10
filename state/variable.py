@@ -182,15 +182,16 @@ class Variable:
         Serialize variable.
         """
 
-        return {
-            "name": self.name,
-            "value": self._value,
-            "quality": self._quality.name,
-            "timestamp": self._timestamp.isoformat(),
-            "unit": self._metadata.unit,
-            "dirty": self._dirty,
-            "enable_store": self.enable_store,
-        }
+        with self._lock:
+            return {
+                "name": self.name,
+                "value": self._value,
+                "quality": self._quality.name,
+                "timestamp": self._timestamp.isoformat(),
+                "unit": self._metadata.unit,
+                "dirty": self._dirty,
+                "enable_store": self.enable_store,
+            }
 
     # -------------------------------------------------
 
