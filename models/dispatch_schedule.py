@@ -22,6 +22,7 @@ class DispatchPlan:
     def __init__(self, path: Path):
         with path.open(encoding="utf-8-sig") as source:
             plan = json.load(source)
+        self.load_shedding_events = plan.get("load_shedding_events", [])
         self._rows = sorted(plan["schedule"], key=lambda row: _timestamp(row["time_stamp"]))
         if not self._rows:
             raise ValueError("Dispatch schedule has no intervals")
@@ -163,8 +164,8 @@ class DispatchSchedule(DispatchPlan, BaseSimulationModel):
             return
         self._index = bisect_right(self._starts, self._clock) - 1
         load_kw, pv_kw = self._powers[self._index]
-        self.db.set(Tags.Network.LOAD_POWER, load_kw)
-        self.db.set(Tags.SOLAR.PV_POWER, pv_kw)
+        # self.db.set(Tags.Network.LOAD_POWER, load_kw)
+        # self.db.set(Tags.SOLAR.PV_POWER, pv_kw)
         self._published_time = self._clock
 
     def active_position(self):

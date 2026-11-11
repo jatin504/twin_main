@@ -20,11 +20,23 @@ class DispatchView:
         self._observed_at = None
 
     def snapshot(self, path):
+        plan = self.load(path)
+        if plan is None:
+            return self._empty()
+        start = plan.display_start.astimezone(IST)
+        now = datetime.now(IST)
+        elapsed = (now - start).total_seconds() if start.date() == now.date() else (
+            monotonic() - self._observed_at
+        )
+        return plan.display_snapshot(min(900, max(0, int(elapsed))))
+
+    def load(self, path):
+        """Return the latest readable plan without changing the simulator."""
         if path != self._source:
             self._source = path
             self._revision = self._plan = self._observed_at = None
         if not path:
-            return self._empty()
+            return None
 
         source = Path(path)
         try:
@@ -46,14 +58,7 @@ class DispatchView:
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             logger.warning("Could not read dispatch schedule from %s", source, exc_info=True)
 
-        if self._plan is None:
-            return self._empty()
-        start = self._plan.display_start.astimezone(IST)
-        now = datetime.now(IST)
-        elapsed = (now - start).total_seconds() if start.date() == now.date() else (
-            monotonic() - self._observed_at
-        )
-        return self._plan.display_snapshot(min(900, max(0, int(elapsed))))
+        return self._plan
 
     @staticmethod
     def _empty():

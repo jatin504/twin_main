@@ -135,6 +135,39 @@ async def get_dispatch():
     return response
 
 
+@simulation_bp.get("/load-shedding/stream")
+async def get_load_shedding_stream():
+    service = current_app.extensions["simulation"]
+    event_id = request.args.get("event_id")
+    return _changed_payload_stream("load_shedding", lambda: service.load_shedding(event_id))
+
+
+@simulation_bp.get("/campus-load-trend/stream")
+async def get_campus_load_trend_stream():
+    service = current_app.extensions["simulation"]
+    return _changed_payload_stream("campus_load_trend", service.campus_load_trend)
+
+
+def _changed_payload_stream(event, read_payload):
+    async def updates():
+        previous = None
+        while True:
+            payload = await read_payload()
+            if payload != previous:
+                yield f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+                previous = payload
+            else:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(1)
+
+    response = Response(
+        updates(), mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+    response.timeout = None
+    return response
+
+
 @simulation_bp.get("/bees-dispatch-schedule/stream")
 async def get_dispatch_stream():
     service = current_app.extensions["simulation"]
@@ -149,6 +182,46 @@ async def get_dispatch_stream():
             else:
                 previous_rows = rows
             yield f"event: dispatch\ndata: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(1)
+
+    response = Response(
+        updates(), mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+    response.timeout = None
+    return response
+
+
+@simulation_bp.get("/dispatch-notifications/stream")
+async def get_dispatch_notifications_stream():
+    """Send one popup notification per active dispatch interval."""
+    service = current_app.extensions["simulation"]
+    last_notification = request.headers.get("Last-Event-ID")
+
+    async def updates():
+        previous = last_notification
+        while True:
+            snapshot = await service.dispatch()
+            interval = snapshot["current_interval"]
+            frame = ": keep-alive\n\n"
+            if interval and (event_id := interval.get("event_id")):
+                time_stamp = interval["time_stamp"]
+                notification_id = json.dumps([event_id, time_stamp])
+                if notification_id != previous:
+                    payload = {
+                        "event_id": event_id,
+                        "time_stamp": time_stamp,
+                        "decision": interval.get("decision"),
+                        "load_kw": interval.get("load_kw"),
+                        "soc_percent": interval.get("soc_percent"),
+                        "window_minutes": 15,
+                    }
+                    previous = notification_id
+                    frame = (
+                        f"id: {notification_id}\nevent: dispatch_notification\n"
+                        f"data: {json.dumps(payload)}\n\n"
+                    )
+            yield frame
             await asyncio.sleep(1)
 
     response = Response(

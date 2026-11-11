@@ -453,6 +453,30 @@ VARIABLE_DEFINITIONS = [
         enable_store=True,
     ),
 
+    VariableDefinition(
+        name=Tags.Load.CHILLERS_POWER_2,
+        datatype=float,
+        default=0,
+        unit="kW",
+        enable_store=True,
+    ),
+
+    VariableDefinition(
+        name=Tags.Load.COOLING_TOWER_POWER_2,
+        datatype=float,
+        default=0,
+        unit="kW",
+        enable_store=True,
+    ),
+
+    VariableDefinition(
+        name=Tags.Load.EV_STACK_POWER_2,
+        datatype=float,
+        default=0,
+        unit="kW",
+        enable_store=True,
+    ),
+
     # Transformer
 
     VariableDefinition(

@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+from datetime import datetime, timedelta
 from functools import partial
 from math import isfinite
 from pathlib import Path
@@ -18,6 +19,8 @@ from twin_api.dashboard import feeder_load, transformer_loading
 from twin_api.dispatch_view import DispatchView
 from twin_api.custom_config import read_configuration, save_configuration, save_grid_availability
 from twin_api.event_history import EventHistory
+from common.constants import IST
+from twin_api.load_shedding import build_campus_trend, build_dashboard
 
 logger = logging.getLogger(__name__)
 PLANT_PATH = Path("plant/plant.yaml")
@@ -232,6 +235,28 @@ class SimulationService:
         async with self._lock:
             snapshot = self._dispatch_view.snapshot(os.getenv("BESS_DISPATCH_RESULT_PATH"))
             return {**snapshot, "simulation_status": self._status()}
+
+    async def load_shedding(self, event_id=None):
+        """Read shedding signals from the dispatch result file."""
+        async with self._lock:
+            plan = self._dispatch_view.load(os.getenv("BESS_DISPATCH_RESULT_PATH"))
+            if event_id is None and plan is not None:
+                event_id = plan.running_event_id
+                if event_id is None and plan.running_timestamp is not None:
+                    event_id = plan.display_snapshot(0)["active_event"]["event_id"]
+            records = plan.load_shedding_events if plan is not None else []
+            samples = self.event_history.read(event_id)["samples"] if event_id else []
+        return build_dashboard(event_id, records, samples)
+
+    async def campus_load_trend(self):
+        """Read the last 30 minutes of PPC history for the campus chart."""
+        async with self._lock:
+            end = datetime.now(IST)
+            start = end - timedelta(minutes=30)
+            plan = self._dispatch_view.load(os.getenv("BESS_DISPATCH_RESULT_PATH"))
+            records = plan.load_shedding_events if plan is not None else []
+            samples = self.event_history.recent_samples(start, end)
+        return build_campus_trend(records, samples, start, end)
 
     async def _start(self):
         simulator, network = await asyncio.to_thread(self._builder)

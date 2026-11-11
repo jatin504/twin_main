@@ -144,3 +144,18 @@ class EventHistory:
                 ]}
             samples = self._events.get(event_id, [])
             return {**result, "event_id": event_id, "samples": list(samples)}
+
+    def recent_samples(self, start, end):
+        """Read the chart window across dispatch events and the IST day boundary."""
+        with self._lock:
+            self._roll_day(end.date())
+            events = list(self._events.items())
+            if start.date() != end.date():
+                events.extend(self._load_day(start.date()).items())
+            samples = []
+            for event_id, readings in events:
+                for sample in readings:
+                    timestamp = datetime.fromisoformat(sample["timestamp"])
+                    if start <= timestamp <= end:
+                        samples.append((timestamp, event_id, sample["values"]))
+            return sorted(samples, key=lambda sample: sample[0])
