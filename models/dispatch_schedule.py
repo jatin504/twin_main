@@ -51,6 +51,28 @@ class DispatchPlan:
             elapsed_seconds=elapsed_seconds,
         )
 
+    def display_position(self):
+        """Return the event and interval selected by the dispatch file."""
+        if not self.running_event_id and self.running_timestamp is None:
+            return None
+        index = bisect_right(self._starts, self._initial_time) - 1
+        row = self._rows[index]
+        event_id = row.get("event_id")
+        if event_id:
+            return event_id, index, self._initial_time, row
+        return None
+
+    def event_window(self, index):
+        """Return the contiguous scheduled window containing this interval."""
+        event_id = self._rows[index].get("event_id")
+        first = last = index
+        while first > 0 and self._rows[first - 1].get("event_id") == event_id:
+            first -= 1
+        while last + 1 < len(self._rows) and self._rows[last + 1].get("event_id") == event_id:
+            last += 1
+        end = self._starts[last + 1] if last + 1 < len(self._rows) else self._end
+        return {"from": self._starts[first].isoformat(), "to": end.isoformat()}
+
     @property
     def display_start(self):
         index = bisect_right(self._starts, self._initial_time) - 1
@@ -177,17 +199,6 @@ class DispatchSchedule(DispatchPlan, BaseSimulationModel):
             if not event_id:
                 return None
             return event_id, self._index, self._published_time, self._rows[self._index]
-
-    def event_window(self, index):
-        """Return the contiguous scheduled window containing this interval."""
-        event_id = self._rows[index].get("event_id")
-        first = last = index
-        while first > 0 and self._rows[first - 1].get("event_id") == event_id:
-            first -= 1
-        while last + 1 < len(self._rows) and self._rows[last + 1].get("event_id") == event_id:
-            last += 1
-        end = self._starts[last + 1] if last + 1 < len(self._rows) else self._end
-        return {"from": self._starts[first].isoformat(), "to": end.isoformat()}
 
     def snapshot(self):
         """Return the applied interval, its clock, and the plan rows."""

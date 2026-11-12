@@ -118,7 +118,7 @@ async def get_event_feasibility():
     event_id = request.args.get("event_id")
     if event_id is not None and not event_id.strip():
         return jsonify(error="event_id must not be empty"), 400
-    report = current_app.extensions["simulation"].event_history.feasibility(event_id)
+    report = await current_app.extensions["simulation"].event_feasibility(event_id)
     if report is None:
         message = (
             "No running event has feasibility samples yet"
@@ -283,7 +283,7 @@ async def restart_simulation():
     except Exception:
         current_app.logger.exception("Simulation restart failed")
         return jsonify(success=False, error="Simulation restart failed; check twin service logs"), 500
-    return jsonify(success=True, status=status, message="Simulation restarted")
+    return jsonify(success=True, status=status, message="Simulation restart request accepted"), 202
 
 
 @simulation_bp.post("/stop")

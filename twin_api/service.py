@@ -104,7 +104,7 @@ class SimulationService:
         return await self._change_state("starting")
 
     async def restart(self):
-        """Stop the previous run and wait until a fresh run is running."""
+        """Accept a restart while the lifecycle task replaces the current run."""
         return await self._change_state("restarting")
 
     async def _change_state(self, phase):
@@ -126,10 +126,8 @@ class SimulationService:
                 phase_pending = self._phase == phase
                 if phase == "stopping" and phase_pending:
                     return "stopping", False
-
-            if phase_pending:
-                await asyncio.shield(pending)
-                return "running", False
+                if phase == "restarting" and phase_pending:
+                    return "restarting", False
             # Wait outside the lock and retry after the earlier operation.
             await asyncio.gather(asyncio.shield(pending), return_exceptions=True)
 
@@ -236,6 +234,16 @@ class SimulationService:
             snapshot = self._dispatch_view.snapshot(os.getenv("BESS_DISPATCH_RESULT_PATH"))
             return {**snapshot, "simulation_status": self._status()}
 
+    async def event_feasibility(self, event_id=None):
+        if event_id is not None:
+            return self.event_history.feasibility(event_id)
+        async with self._lock:
+            plan = self._dispatch_view.load(os.getenv("BESS_DISPATCH_RESULT_PATH"))
+            position = plan.display_position() if plan else None
+            return self.event_history.feasibility(
+                position[0] if position else None, active_only=True,
+            )
+
     async def load_shedding(self, event_id=None):
         """Read shedding signals from the dispatch result file."""
         async with self._lock:
@@ -264,9 +272,14 @@ class SimulationService:
         run_id = uuid4().hex
         if schedule is not None:
             ppc = simulator.plant_database.device(simulator.plant_device_id)
+            dispatch_view = DispatchView()
+            dispatch_path = os.getenv("BESS_DISPATCH_RESULT_PATH")
 
             def record_event_history():
-                self.event_history.record(run_id, schedule, ppc, network.voltage_profile)
+                plan = dispatch_view.load(dispatch_path)
+                self.event_history.record(
+                    run_id, schedule, ppc, network.voltage_profile, dispatch_plan=plan,
+                )
 
             simulator.scheduler.after_network_update = record_event_history
         server = await self._listener(simulator)
@@ -274,6 +287,7 @@ class SimulationService:
             await asyncio.to_thread(simulator.start, simulator, network)
         except BaseException:
             server.close()
+            server.abort_clients()
             await server.wait_closed()
             # Simulator.start sets its flag before model initialization.
             await asyncio.to_thread(simulator.stop)
@@ -290,6 +304,8 @@ class SimulationService:
     async def _stop(self):
         if self._server is not None:
             self._server.close()
+            # Active Modbus sessions must end before wait_closed can finish.
+            self._server.abort_clients()
             await self._server.wait_closed()
         if self._simulator is not None:
             await asyncio.to_thread(self._simulator.stop)

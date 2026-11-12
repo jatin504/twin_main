@@ -73,26 +73,32 @@ class EventHistory:
                     target.write(b"\n")
             target.write(line + b"\n")
 
-    def record(self, run_id, schedule, ppc, voltage_profile):
+    def record(self, run_id, schedule, ppc, voltage_profile, *, dispatch_plan=None):
         position = schedule.active_position()
+        dispatch_position = dispatch_plan.display_position() if dispatch_plan else None
+        report_position = dispatch_position or position
+        report_plan = dispatch_plan if dispatch_position else schedule
         with self._lock:
             now = datetime.now(timezone.utc)
             slot = int(now.timestamp()) // SAMPLE_INTERVAL_SECONDS
             self._roll_day(now.astimezone(IST).date())
-            if position is None:
+            interval = (run_id, *position[:2]) if position is not None else None
+            save_history = interval is not None and (
+                self._last_interval != interval or self._last_slot != slot
+            )
+            if report_position is None:
                 self._finish_active("completed")
                 return
-            event_id, interval_index, simulation_time, row = position
-            interval = (run_id, event_id, interval_index)
-            if self._active_event != event_id:
+            report_id, report_index, _, report_row = report_position
+            if self._active_event != report_id:
                 self._finish_active("completed")
-                self._reports[event_id] = EventFeasibility(schedule.event_window(interval_index))
-                self._active_event = event_id
-            save_history = self._last_interval != interval or self._last_slot != slot
+                self._reports[report_id] = EventFeasibility(report_plan.event_window(report_index))
+                self._active_event = report_id
             tags = ppc.snapshot(None if save_history else CHECK_TAGS)
-            self._reports[event_id].record(tags, voltage_profile, row)
+            self._reports[report_id].record(tags, voltage_profile, report_row)
             if not save_history:
                 return
+            event_id, interval_index, simulation_time, _ = position
             values = {}
             for name, tag in tags.items():
                 value = tag["value"]
@@ -120,12 +126,14 @@ class EventHistory:
         with self._lock:
             self._finish_active("interrupted")
 
-    def feasibility(self, event_id=None):
+    def feasibility(self, event_id=None, *, active_only=False):
         """Read the selected event report, defaulting to the active event."""
         with self._lock:
             self._roll_day(datetime.now(IST).date())
             if event_id is None:
                 event_id = self._active_event
+            if active_only and event_id != self._active_event:
+                return None
             report = self._reports.get(event_id)
             return {"event_id": event_id, **report.response()} if report is not None else None
 
