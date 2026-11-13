@@ -8,8 +8,10 @@ from models.base import BaseSimulationModel
 
 class Scheduler:
 
-    def __init__(self, cycle_time: float = 0.1):
+    def __init__(self, cycle_time: float = 0.1, *, history_enabled: bool = True):
         self.cycle_time = cycle_time
+        self.history_enabled = history_enabled
+        self.after_network_update = None
         self.models: list[BaseSimulationModel] = []
 
         self.running = False
@@ -68,36 +70,38 @@ class Scheduler:
                         print(f"Error in Model[{model.name}]: {e}")
 
                 network.update()
+                if self.after_network_update is not None:
+                    self.after_network_update()
 
                 for session in simulator.modbus_sessions.values():
                     session.forward_synchronize()
 
-                # Record historical time-series data for enabled tags
-                try:
-                    simulator.record_history()
-                except Exception as e:
-                    print(f"Error recording history: {e}")
-
-                # Periodically save history to JSON file (configurable interval)
-                save_interval_steps = max(
-                    1,
-                    int(getattr(simulator, "history_save_interval", 5.0) / 0.5),
-                )
-                if step_count % save_interval_steps == 0:
+                if self.history_enabled:
                     try:
-                        simulator.save_history_to_json()
-                    except Exception:
-                        pass
+                        simulator.record_history()
+                    except Exception as e:
+                        print(f"Error recording history: {e}")
+
+                    save_interval_steps = max(
+                        1,
+                        int(getattr(simulator, "history_save_interval", 5.0) / 0.5),
+                    )
+                    if step_count % save_interval_steps == 0:
+                        try:
+                            simulator.save_history_to_json()
+                        except Exception:
+                            pass
 
                 time.sleep(0.5)
 
         finally:
             self.running = False
 
-            try:
-                simulator.save_history_to_json()
-            except Exception:
-                pass
+            if self.history_enabled:
+                try:
+                    simulator.save_history_to_json()
+                except Exception:
+                    pass
 
             if self.reverse_thread and self.reverse_thread.is_alive():
                 try:

@@ -34,6 +34,7 @@ def load_history_config(config_path: str | Path | None = None) -> HistoryConfig:
     If no path is provided, checks standard paths (configs/history_config.json, history_config.json).
     Falls back to environment variables or defaults if file not found.
     """
+    export_path = os.getenv("BESS_HISTORY_JSON_PATH")
     target_path = None
     if config_path:
         p = Path(config_path)
@@ -53,7 +54,7 @@ def load_history_config(config_path: str | Path | None = None) -> HistoryConfig:
             return HistoryConfig(
                 history_window_seconds=float(data.get("history_window_seconds", 3600.0)),
                 save_interval_seconds=float(data.get("save_interval_seconds", 5.0)),
-                export_file_path=str(data.get("export_file_path", "data/history.json")),
+                export_file_path=export_path or str(data.get("export_file_path", "data/history.json")),
                 target_devices=list(data.get("target_devices", ["PPC"])),
                 enabled_tags=data.get("enabled_tags"),
             )
@@ -62,4 +63,7 @@ def load_history_config(config_path: str | Path | None = None) -> HistoryConfig:
 
     # Fallback to environment variables or defaults
     env_sec = float(os.getenv("HISTORY_WINDOW_SECONDS", "3600.0"))
-    return HistoryConfig(history_window_seconds=env_sec)
+    return HistoryConfig(
+        history_window_seconds=env_sec,
+        export_file_path=export_path or "data/history.json",
+    )

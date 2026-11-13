@@ -18,11 +18,15 @@ import threading
 
 class Simulator:
 
-    def __init__(self):
+    def __init__(self, *, history_enabled: bool = True):
 
         self.plant_database = PlantDatabase()
+        self.dispatch_schedule = None
 
-        self.scheduler = Scheduler(cycle_time=SIMULATION_STEP_SEC)
+        self.scheduler = Scheduler(
+            cycle_time=SIMULATION_STEP_SEC,
+            history_enabled=history_enabled,
+        )
 
         self.contexts = {}
 

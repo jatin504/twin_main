@@ -162,15 +162,14 @@ class StateDatabase:
 
     # -------------------------------------------------
 
-    def snapshot(self) -> dict[str, dict]:
+    def snapshot(self, tags: set[str] | None = None) -> dict[str, dict]:
 
-        return {
-
-            variable.name: variable.as_dict()
-
-            for variable in self._variables.values()
-
-        }
+        with self._lock:
+            return {
+                variable.name: variable.as_dict()
+                for variable in self._variables.values()
+                if tags is None or variable.name in tags
+            }
 
     # -------------------------------------------------
 

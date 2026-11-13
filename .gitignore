@@ -19,3 +19,9 @@ logs/
 ./myenv/
 .myenv/
 myenv/
+
+.devin/
+
+docs/
+
+data/event_history/

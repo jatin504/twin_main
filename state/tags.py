@@ -202,8 +202,11 @@ class Tags:
     class Load:
 
         CHILLERS_POWER = "Load.ChillersPower"
+        CHILLERS_POWER_2 = "Load.ChillersPower_2"
         COOLING_TOWER_POWER = "Load.CoolingTowerPower"
+        COOLING_TOWER_POWER_2 = "Load.CoolingTowerPower_2"
         EV_STACK_POWER = "Load.EV_StackPower"
+        EV_STACK_POWER_2 = "Load.EV_StackPower_2"
         SERVICE_BLOCK_POWER = "Load.ServiceBlockPower"
 
         CHILLERS_VOLTAGE = "Load.ChillersVoltage"
