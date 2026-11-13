@@ -20,6 +20,7 @@ from twin_api.dispatch_view import DispatchView
 from twin_api.custom_config import read_configuration, save_configuration, save_grid_availability
 from twin_api.event_history import EventHistory
 from common.constants import IST
+from twin_api.live_load_flow import LIVE_TAGS, LoadFlowHistory, live_payload
 from twin_api.load_shedding import build_campus_trend, build_dashboard
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ class SimulationService:
         self._dispatch_view = DispatchView()
         history_dir = Path(os.getenv("BESS_EVENT_HISTORY_DIR") or "data/event_history")
         self.event_history = EventHistory(history_dir)
+        self.load_flow_history = LoadFlowHistory()
 
     async def configuration(self):
         async with self._lock:
@@ -228,6 +230,18 @@ class SimulationService:
                 if include_all or device_id in device_ids
             }
 
+    async def live_load_flow(self):
+        """Read the load-flow widgets from the current PPC snapshot."""
+        async with self._lock:
+            status = self._status()
+            if status != "running":
+                return live_payload(status, {}, [])
+            simulator = self._simulator
+            ppc = simulator.plant_database.device(simulator.plant_device_id)
+            return live_payload(
+                status, ppc.snapshot(LIVE_TAGS), simulator.network.topology["transformers"],
+            )
+
     async def dispatch(self):
         """Read the file-driven dashboard independently of simulation lifecycle."""
         async with self._lock:
@@ -235,14 +249,7 @@ class SimulationService:
             return {**snapshot, "simulation_status": self._status()}
 
     async def event_feasibility(self, event_id=None):
-        if event_id is not None:
-            return self.event_history.feasibility(event_id)
-        async with self._lock:
-            plan = self._dispatch_view.load(os.getenv("BESS_DISPATCH_RESULT_PATH"))
-            position = plan.display_position() if plan else None
-            return self.event_history.feasibility(
-                position[0] if position else None, active_only=True,
-            )
+        return self.event_history.feasibility(event_id)
 
     async def load_shedding(self, event_id=None):
         """Read shedding signals from the dispatch result file."""
@@ -282,6 +289,7 @@ class SimulationService:
                 )
 
             simulator.scheduler.after_network_update = record_event_history
+        self._attach_load_flow_history(simulator, network, run_id)
         server = await self._listener(simulator)
         try:
             await asyncio.to_thread(simulator.start, simulator, network)
@@ -295,6 +303,20 @@ class SimulationService:
         self._simulator = simulator
         self._server = server
         self._run_id = run_id
+
+    def _attach_load_flow_history(self, simulator, network, run_id):
+        ppc = simulator.plant_database.device(simulator.plant_device_id)
+        previous_callback = simulator.scheduler.after_network_update
+
+        def record_after_network_update():
+            if previous_callback is not None:
+                previous_callback()
+            try:
+                self.load_flow_history.record(ppc, run_id, network.backend.grid_power)
+            except Exception:
+                logger.exception("Could not record Live Load Flow sample")
+
+        simulator.scheduler.after_network_update = record_after_network_update
 
     async def stop(self):
         """Queue cleanup after any earlier lifecycle operation."""

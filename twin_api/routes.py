@@ -1,13 +1,16 @@
 """HTTP mapping only; simulation ownership lives in the service."""
 import asyncio
 import json
+from datetime import date, datetime
 
 from math import isfinite
 
 from quart import Blueprint, Response, current_app, jsonify, request
 
+from common.constants import IST
 from models.protection import ProtectionManager
 from twin_api.custom_config import InvalidConfiguration
+from twin_api.live_load_flow import grid_bess_solar_history
 from twin_api.trends_stream import stream_trends
 
 simulation_bp = Blueprint("simulation", __name__)
@@ -121,7 +124,7 @@ async def get_event_feasibility():
     report = await current_app.extensions["simulation"].event_feasibility(event_id)
     if report is None:
         message = (
-            "No running event has feasibility samples yet"
+            "No event has feasibility samples in this API process yet"
             if event_id is None else "No feasibility samples recorded for this event today"
         )
         return jsonify(error=message), 404
@@ -148,14 +151,56 @@ async def get_campus_load_trend_stream():
     return _changed_payload_stream("campus_load_trend", service.campus_load_trend)
 
 
-def _changed_payload_stream(event, read_payload):
+@simulation_bp.get("/live-load-flow/stream")
+async def get_live_load_flow_stream():
+    service = current_app.extensions["simulation"]
+    return _changed_payload_stream("live_load_flow", service.live_load_flow)
+
+
+@simulation_bp.get("/live-load-flow/history/stream")
+async def get_live_load_flow_history_stream():
+    service = current_app.extensions["simulation"]
+
+    async def read_history():
+        return service.load_flow_history.read()
+
+    return _changed_payload_stream(
+        "live_load_flow_history", read_history, change_key=lambda payload: payload["points"],
+    )
+
+
+@simulation_bp.get("/live-load-flow/grid-bess-solar/history/stream")
+async def get_grid_bess_solar_history_stream():
+    raw_date = request.args.get("date", "")
+    try:
+        day = date.fromisoformat(raw_date)
+        if raw_date != day.isoformat() or day >= datetime.now(IST).date():
+            raise ValueError
+    except ValueError:
+        return jsonify(error="Send a previous IST date in YYYY-MM-DD format"), 400
+
+    history = current_app.extensions["simulation"].event_history
+    samples = await asyncio.to_thread(history.samples_for_date, day)
+    payload = grid_bess_solar_history(day, samples)
+
+    async def snapshot():
+        yield f"event: grid_bess_solar_history\ndata: {json.dumps(payload)}\n\n"
+
+    return Response(
+        snapshot(), mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
+def _changed_payload_stream(event, read_payload, *, change_key=None):
     async def updates():
         previous = None
         while True:
             payload = await read_payload()
-            if payload != previous:
+            current = change_key(payload) if change_key is not None else payload
+            if current != previous:
                 yield f"event: {event}\ndata: {json.dumps(payload)}\n\n"
-                previous = payload
+                previous = current
             else:
                 yield ": keep-alive\n\n"
             await asyncio.sleep(1)

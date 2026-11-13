@@ -14,6 +14,12 @@ SAMPLE_INTERVAL_SECONDS = 15
 logger = logging.getLogger(__name__)
 
 
+def _sample_timestamp(value: str) -> datetime:
+    if isinstance(value, str) and value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
 class EventHistory:
     """Persist event samples to daily JSON Lines files and cache today's samples."""
 
@@ -24,12 +30,14 @@ class EventHistory:
         self._events = {}
         self._reports = {}
         self._active_event = None
+        self._last_finished_report = None
         self._last_interval = None
         self._last_slot = None
 
     def _roll_day(self, today):
         if self._day != today:
             events = self._load_day(today)
+            self._finish_active("interrupted")
             self._day = today
             self._events = events
             self._reports.clear()
@@ -50,7 +58,7 @@ class EventHistory:
                     try:
                         item = json.loads(line)
                         event_id = item.pop("event_id")
-                        timestamp = datetime.fromisoformat(item["timestamp"])
+                        timestamp = _sample_timestamp(item["timestamp"])
                         if not isinstance(event_id, str) or timestamp.tzinfo is None:
                             raise ValueError
                     except (ValueError, TypeError, KeyError, AttributeError):
@@ -60,6 +68,17 @@ class EventHistory:
         except FileNotFoundError:
             pass
         return events
+
+    def samples_for_date(self, day):
+        """Read saved samples without changing the active day's event state."""
+        events = self._load_day(day)
+        samples = []
+        for readings in events.values():
+            for sample in readings:
+                timestamp = _sample_timestamp(sample["timestamp"]).astimezone(IST)
+                if timestamp.date() == day and isinstance(sample.get("values"), dict):
+                    samples.append((timestamp, sample["values"]))
+        return sorted(samples, key=lambda sample: sample[0])
 
     def _append_sample(self, event_id, sample):
         path = self._daily_file(self._day)
@@ -119,23 +138,28 @@ class EventHistory:
 
     def _finish_active(self, status):
         if self._active_event is not None:
-            self._reports[self._active_event].status = status
+            report = self._reports[self._active_event]
+            report.status = status
+            self._last_finished_report = {"event_id": self._active_event, **report.response()}
             self._active_event = None
 
     def stop(self):
         with self._lock:
             self._finish_active("interrupted")
 
-    def feasibility(self, event_id=None, *, active_only=False):
-        """Read the selected event report, defaulting to the active event."""
+    def feasibility(self, event_id=None):
+        """Read the requested event or show the active or latest finished run."""
         with self._lock:
             self._roll_day(datetime.now(IST).date())
+            last = self._last_finished_report
             if event_id is None:
                 event_id = self._active_event
-            if active_only and event_id != self._active_event:
-                return None
+                if event_id is None and last is not None:
+                    return {**last, "last_event_summary": last}
             report = self._reports.get(event_id)
-            return {"event_id": event_id, **report.response()} if report is not None else None
+            if report is None:
+                return None
+            return {"event_id": event_id, **report.response(), "last_event_summary": last}
 
     def read(self, event_id=None):
         with self._lock:
@@ -163,7 +187,7 @@ class EventHistory:
             samples = []
             for event_id, readings in events:
                 for sample in readings:
-                    timestamp = datetime.fromisoformat(sample["timestamp"])
+                    timestamp = _sample_timestamp(sample["timestamp"])
                     if start <= timestamp <= end:
                         samples.append((timestamp, event_id, sample["values"]))
             return sorted(samples, key=lambda sample: sample[0])

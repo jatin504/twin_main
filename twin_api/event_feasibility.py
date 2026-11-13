@@ -5,16 +5,12 @@ from state.quality import Quality
 from state.tags import Tags
 
 
-TRANSFORMER_TAGS = (
-    Tags.Transformer.T1_LOADING,
-    Tags.Transformer.T2_LOADING,
-    Tags.Transformer.T3_LOADING,
-)
+TRANSFORMER_TAGS = {
+    Tags.Transformer.T1_LOADING: "T1",
+    Tags.Transformer.T2_LOADING: "T2",
+    Tags.Transformer.T3_LOADING: "T3",
+}
 CHECK_TAGS = {*TRANSFORMER_TAGS, Tags.Grid.FREQUENCY, Tags.Grid.IMPORT_POWER}
-UNAVAILABLE_CHECKS = (
-    "feeder_loading", "ups_autonomy", "it_load_continuity",
-    "hvac_capacity", "thermal_power_margin",
-)
 
 
 def _number(value):
@@ -51,12 +47,20 @@ class EventFeasibility:
     def record(self, tags, profile, interval):
         limit = _number(interval.get("grid_import_limit_kw"))
         grid = _reading(tags, Tags.Grid.IMPORT_POWER)
+        transformer_loadings = {
+            transformer: _reading(tags, tag)
+            for tag, transformer in TRANSFORMER_TAGS.items()
+        }
+        transformer_check = _check(transformer_loadings.values(), 0, 100, "%")
+        transformer_check["transformer_id"] = next(
+            (name for name, value in transformer_loadings.items()
+             if value is not None and value == transformer_check["max"]),
+            None,
+        )
         self.latest = {
             "voltage": _check([_number(value) for value in profile.values()], .95, 1.05, "p.u."),
             "frequency": _check([_reading(tags, Tags.Grid.FREQUENCY)], 48, 52, "Hz"),
-            "transformer_loading": _check(
-                [_reading(tags, name) for name in TRANSFORMER_TAGS], 0, 80, "%"
-            ),
+            "transformer_loading": transformer_check,
             "grid_import": (
                 _check([grid], None, limit, "kW") if limit is not None and limit >= 0
                 else {"status": "unavailable", "min": grid, "max": grid, "unit": "kW",
@@ -72,6 +76,10 @@ class EventFeasibility:
             summary["unavailable_samples"] += check["status"] == "unavailable"
             if name != "grid_import":
                 summary["limits"] = check["limits"]
+            if name == "transformer_loading" and check["max"] is not None and (
+                summary["max"] is None or check["max"] > summary["max"]
+            ):
+                summary["transformer_id"] = check["transformer_id"]
             for key, combine in (("min", min), ("max", max)):
                 value = check[key]
                 if value is not None:
@@ -81,7 +89,6 @@ class EventFeasibility:
         running = self.status == "running"
         readings = self.latest if running else self.summary
         checks = {}
-        not_evaluated = len(UNAVAILABLE_CHECKS)
         for name, reading in readings.items():
             if running:
                 status = reading["status"]
@@ -90,10 +97,11 @@ class EventFeasibility:
             else:
                 status = "unavailable" if reading["unavailable_samples"] else "pass"
             if status == "unavailable":
-                not_evaluated += 1
                 continue
 
             check = {"status": status, "unit": reading["unit"]}
+            if name == "transformer_loading":
+                check["transformer_id"] = reading["transformer_id"]
             if "limits" in reading:
                 check["limits"] = reading["limits"]
             if running and name in {"frequency", "grid_import"}:
@@ -106,14 +114,45 @@ class EventFeasibility:
                 check["failed_samples"] = reading["failed_samples"]
             checks[name] = check
 
-        statuses = {check["status"] for check in checks.values()}
-        result = "fail" if "fail" in statuses else (
-            "partial_pass" if checks and len(checks) == len(readings) else "insufficient_data"
-        )
+        # statuses = {check["status"] for check in checks.values()}
+        # result = "fail" if "fail" in statuses else (
+        #     "partial_pass" if checks and len(checks) == len(readings) else "insufficient_data"
+        # )
+        # return {
+        #     "event_status": self.status,
+        #     "window": self.window,
+        #     "result": result,
+        #     "display_status": "In Process" if running and result == "partial_pass" else {
+        #         "partial_pass": "Partial Pass",
+        #         "insufficient_data": "Insufficient Data",
+        #         "fail": "Fail",
+        #     }[result],
+        #     "checks": checks,
+        # }
+        if running:
+            statuses = {check["status"] for check in checks.values()}
+            result = "fail" if "fail" in statuses else (
+                "partial_pass" if checks and len(checks) == len(readings) else "insufficient_data"
+            )
+        else:
+            transformer = self.summary.get("transformer_loading", {})
+            peak = transformer.get("max")
+            if peak is None:
+                result = "insufficient_data"
+            elif peak > transformer["limits"]["max"]:
+                result = "fail"
+            else:
+                result = "pass"
+
         return {
             "event_status": self.status,
             "window": self.window,
             "result": result,
+            "display_status": "In Process" if running and result == "partial_pass" else {
+                "pass": "Pass",
+                "partial_pass": "Partial Pass",
+                "insufficient_data": "Insufficient Data",
+                "fail": "Fail",
+            }[result],
             "checks": checks,
-            "checks_not_evaluated": not_evaluated,
         }
